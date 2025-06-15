@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
-const { GetGraphicalQlHubs } = require('./aec.controller');
+const { GetModelSheets } = require('./aec.controller');
 
-router.get ('/graphql-hubs', GetGraphicalQlHubs);
+router.get ('/graphql-hubs', GetModelSheets);
 
 module.exports = router;
