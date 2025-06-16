@@ -17,7 +17,7 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 
 app.use("/auth", require('./resources/auth/auth.router'));
-app.use("/aec", require('./utils/Data_Model_utils/aec.router'));
+app.use("/aec", require('./resources/Data_Model/aec.router'));
 
 app.get("/", (req, res) => {
   res.json({ message: "Backend API is alive 🚀" });
