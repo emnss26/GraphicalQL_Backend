@@ -61,7 +61,7 @@ const GetModelSheets = async (req, res) => {
     //console.log(`📂 All folders for project ${projectId}:`, allSubFolders);
 
     const files = await fetchFolderContents(token, altProjectId, folderToGetFiles);
-    console.log("📂 Files in folder", files);
+    //console.log("📂 Files in folder", files);
 
     const projectReviews = await GetProjectReviews(token, altProjectId);
     //console.log("Project reviews:", projectReviews);
