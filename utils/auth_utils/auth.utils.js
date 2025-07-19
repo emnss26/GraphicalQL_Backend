@@ -22,7 +22,7 @@ const GetAPSThreeLeggedToken = async (code) => {
       grant_type: "authorization_code",
       code: code,
       redirect_uri: `${APS_BASE_URL}`,
-      scope: "data:read data:create data:write",
+      scope: "data:read data:create data:write account:read account:write",
     };
 
     const headers = {

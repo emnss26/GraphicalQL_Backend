@@ -2,9 +2,9 @@ const axios = require("axios");
 const {
   fetchHubs,
 } = require("../../utils/data_management_utils/data.amanegement.hubs.js");
-const { fetchProjects } = require("../libs/aec.get.project.js");
+const { fetchProjects } = require("../../libs/aec/aec.get.project.js");
 
-const {GetProjectFilesFolders } = require("../../utils/data_management_utils/data.management.project.files-folders.js");
+const {GetProjectFilesFolders } = require("../../../utils/data_management_utils/data.management.project.files-folders.js");
 
 const GetFileRevisionStatus = async (req, res) => {
   const token = req.cookies["access_token"];

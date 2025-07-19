@@ -3,7 +3,7 @@ const axios = require("axios");
 const {
   GetAPSThreeLeggedToken,
   GetAPSToken,
-} = require("../../utils/auth_utils/auth.utils");
+} = require("../../../utils/auth_utils/auth.utils");
 
 const frontendUrl = process.env.FRONTEND_URL;
 
@@ -29,7 +29,7 @@ const GetThreeLegged = async (req, res) => {
       path: "/",
     });
 
-    return res.redirect(`${frontendUrl}/aec-model`);
+    return res.redirect(`${frontendUrl}/aec-projects`);
   } catch (error) {
     console.error("Error in GetThreeLegged:", error);
     return res

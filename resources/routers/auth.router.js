@@ -2,7 +2,7 @@ const express = require('express');
 
   const {
     GetThreeLegged,
-    GetToken,} = require('./auth.controller');
+    GetToken,} = require('../controllers/auth/auth.controller');
 
 const router = express.Router();
 
