@@ -12,7 +12,11 @@ const GetProjectReviews = async (token, projectId) => {
     const response = await axios.get(url, { headers });
     const projectReviews = response.data.results;
     
+<<<<<<< HEAD
     console.log("Project reviews data:", projectReviews);
+=======
+    //console.log("Project reviews data:", projectReviews);
+>>>>>>> 72bc097a467174a06524857e65f251e7d53ef5ac
 
     return projectReviews
     
