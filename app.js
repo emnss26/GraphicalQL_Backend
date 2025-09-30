@@ -18,14 +18,10 @@ app.options(/.*/, cors());
 app.use(morgan("dev"));
 app.use(cookieParser());
 
-<<<<<<< HEAD
-app.use("/auth", require('./resources/auth/auth.router'));
-app.use("/aec", require('./resources/Data_Model/aec.router'));
-=======
 app.use("/auth", require('./resources/routers/auth.router'));
 app.use("/aec", require('./resources/routers/aec.router'));
 app.use("/acc", require('./resources/routers/acc.router'));
->>>>>>> 72bc097a467174a06524857e65f251e7d53ef5ac
+
 
 app.get("/", (req, res) => {
   res.json({ message: "Backend API is alive 🚀" });
