@@ -25,28 +25,39 @@ const importPlans = async (req, res) => {
     if (!Array.isArray(plans) || !plans.length) {
       return res.status(400).json({ error: "Payload vacío" });
     }
+
     for (const p of plans) {
       const row = {
         project_id: projectId,
         name: String(p.name || "").trim(),
-        number: String(p.number || "").trim(),
+        number: (p.number != null && String(p.number).trim() !== "") ? String(p.number).trim() : null,
         planned_gen_date: normDate(p.plannedGenDate),
         planned_review_date: normDate(p.plannedReviewDate),
         planned_issue_date: normDate(p.plannedIssueDate),
       };
-      const key = row.number
-        ? { project_id: projectId, number: row.number }
-        : { project_id: projectId, name: row.name };
-      const existing = await knex("user_plans").where(key).first();
-      if (existing) {
-        await knex("user_plans").where({ id: existing.id }).update({
-          name: row.name,
-          planned_gen_date: row.planned_gen_date,
-          planned_review_date: row.planned_review_date,
-          planned_issue_date: row.planned_issue_date,
-          updated_at: knex.fn.now(),
-        });
+
+      if (row.number) {
+        // UPSERT por (project_id, number)
+        const existing = await knex("user_plans")
+          .where({ project_id: projectId, number: row.number })
+          .first();
+        if (existing) {
+          await knex("user_plans").where({ id: existing.id }).update({
+            name: row.name,
+            planned_gen_date: row.planned_gen_date,
+            planned_review_date: row.planned_review_date,
+            planned_issue_date: row.planned_issue_date,
+            updated_at: knex.fn.now(),
+          });
+        } else {
+          await knex("user_plans").insert({
+            ...row,
+            created_at: knex.fn.now(),
+            updated_at: knex.fn.now(),
+          });
+        }
       } else {
+        // SIN número → SIEMPRE inserta una nueva fila
         await knex("user_plans").insert({
           ...row,
           created_at: knex.fn.now(),
@@ -54,7 +65,11 @@ const importPlans = async (req, res) => {
         });
       }
     }
-    const rows = await knex("user_plans").where({ project_id: projectId }).orderBy("id", "asc");
+
+    const rows = await knex("user_plans")
+      .where({ project_id: projectId })
+      .orderBy("id", "asc");
+
     res.json({ ok: true, plans: rows });
   } catch (e) {
     res.status(500).json({ error: e.message || "Error al importar planes" });
@@ -65,18 +80,21 @@ const updatePlan = async (req, res) => {
   try {
     const { projectId, id } = { projectId: req.params.projectId, id: Number(req.params.id) };
     const allowed = {
-      name: (v) => String(v || "").trim(),
-      number: (v) => String(v || "").trim(),
-      plannedGenDate: normDate,
-      actualGenDate: normDate,
-      plannedReviewDate: normDate,
-      actualReviewDate: normDate,
-      plannedIssueDate: normDate,
-      actualIssueDate: normDate,
-      currentRevision: (v) => String(v || "").trim(),
-      currentRevisionDate: normDate,
-      status: (v) => String(v || "").trim(),
-    };
+        name: (v) => String(v || "").trim(),
+        number: (v) => {
+            const s = String(v || "").trim();
+            return s === "" ? null : s;
+        },
+        plannedGenDate: normDate,
+        actualGenDate: normDate,
+        plannedReviewDate: normDate,
+        actualReviewDate: normDate,
+        plannedIssueDate: normDate,
+        actualIssueDate: normDate,
+        currentRevision: (v) => String(v || "").trim(),
+        currentRevisionDate: normDate,
+        status: (v) => String(v || "").trim(),
+        };
     const patch = {};
     for (const k of Object.keys(req.body || {})) {
       if (k in allowed) {

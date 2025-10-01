@@ -11,11 +11,11 @@ const {
 const { ResetProjectData, ResetAllData } =
   require('../controllers/plans/aec.db.reset.controller');
 
-router.get("/aec/:projectId/plans", listPlans);
-router.post("/aec/:projectId/plans/import", importPlans);
-router.put("/aec/:projectId/plans/:id", updatePlan);
-router.delete("/aec/:projectId/plans/:id", deletePlan);
-router.post("/aec/:projectId/plans/match", matchPlansStub);
+router.get("/:projectId/plans", listPlans);
+router.post("/:projectId/plans/import", importPlans);
+router.put("/:projectId/plans/:id", updatePlan);
+router.delete("/:projectId/plans/:id", deletePlan);
+router.post("/:projectId/plans/match", matchPlansStub);
 
 router.delete('/:projectId/reset', ResetProjectData);
 router.delete('/_all/reset', ResetAllData);

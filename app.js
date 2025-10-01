@@ -21,6 +21,7 @@ app.use(cookieParser());
 app.use("/auth", require('./resources/routers/auth.router'));
 app.use("/aec", require('./resources/routers/aec.router'));
 app.use("/acc", require('./resources/routers/acc.router'));
+app.use("/plans", require('./resources/routers/plans.router'))
 
 
 app.get("/", (req, res) => {
