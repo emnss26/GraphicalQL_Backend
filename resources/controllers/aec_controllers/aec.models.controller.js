@@ -14,7 +14,7 @@ const GetAECModels = async (req, res) => {
     }
 
     const models = await fetchModels(token, projectId);
-    //console.log(`🗂 Models for project ${projectId}:`, models);
+    console.log(`🗂 Models for project ${projectId}:`, models);
 
     return res.status(200).json({
       data: {
