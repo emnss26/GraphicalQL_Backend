@@ -14,7 +14,7 @@ const GetModelSheets = async (req, res) => {
   try {
     let projectId = req.params.projectId;
     const token = req.cookies["access_token"];
-    const altProjectId = req.headers['x-alt-project-id'];
+    const altProjectId = req.headers['x-alt-pro ject-id'];
      const selectedFolderId = req.headers['selected-folder-id'];
 
     if (!altProjectId) {
@@ -44,7 +44,7 @@ const GetModelSheets = async (req, res) => {
     //console.log(`📄 Sheets for model ${modelId}:`, sheets);
 
     const files = await fetchFolderContents(token, altProjectId, selectedFolderId);
-    console.log("📂 Files in folder", files);
+    //console.log("📂 Files in folder", files);
 
     const projectReviews = await GetProjectReviews(token, altProjectId);
     //console.log("Project reviews:", projectReviews);

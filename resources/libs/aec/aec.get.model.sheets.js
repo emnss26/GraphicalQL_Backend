@@ -40,6 +40,8 @@ async function fetchSheets(token, elementGroupId, propertyFilter) {
     },
   });
 
+  //console.log ("Sheets Data", data.data.elementsByElementGroup.results[0].properties)
+
   return data.data.elementsByElementGroup.results;
 }
 

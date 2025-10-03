@@ -5,7 +5,7 @@ const {
   importPlans,
   updatePlan,
   deletePlan,
-  matchPlansStub,
+  matchPlans,
 } = require("../controllers/plans/aec.project.plans.controller");
 
 const { ResetProjectData, ResetAllData } =
@@ -15,7 +15,7 @@ router.get("/:projectId/plans", listPlans);
 router.post("/:projectId/plans/import", importPlans);
 router.put("/:projectId/plans/:id", updatePlan);
 router.delete("/:projectId/plans/:id", deletePlan);
-router.post("/:projectId/plans/match", matchPlansStub);
+router.post("/:projectId/plans/match", matchPlans);
 
 router.delete('/:projectId/reset', ResetProjectData);
 router.delete('/_all/reset', ResetAllData);

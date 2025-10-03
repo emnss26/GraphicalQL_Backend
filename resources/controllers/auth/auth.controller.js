@@ -62,7 +62,25 @@ const GetToken = async (req, res) => {
   }
 };
 
+const PostLogout = async (req, res) => {
+  try {
+    res.clearCookie("access_token", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
+      path: "/",
+    });
+    res.status(200).json({ message: "Logged out" });
+  } catch (error) {
+    res.status(500).json({
+      message: "Error logging out",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   GetThreeLegged,
   GetToken,
+  PostLogout
 };

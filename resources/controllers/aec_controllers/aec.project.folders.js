@@ -12,7 +12,7 @@ const GetAECProjectFolders = async (req, res) => {
 
   try {
     const folderTree = await fetchFolderTree(token, projectId);
-    console.log(`📂 Folder tree for project ${projectId}:`, folderTree);
+    //console.log(`📂 Folder tree for project ${projectId}:`, folderTree);
 
     return res.status(200).json({
       data: {
