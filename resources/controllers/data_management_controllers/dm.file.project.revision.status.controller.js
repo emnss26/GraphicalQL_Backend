@@ -31,7 +31,7 @@ const GetFileRevisionStatus = async (req, res) => {
       throw new Error("Unexpected hubs format");
     }
 
-    console.log("✅ Hubs:", hubDMs);
+    //console.log("✅ Hubs:", hubDMs);
 
     const hubDMFiltered = hubDMs.filter(
       (hub) => hub.Name === "TAD_HUB"
@@ -63,7 +63,7 @@ const GetFileRevisionStatus = async (req, res) => {
     if (!Array.isArray(projectFilesFolders)) {
       throw new Error("Unexpected projectFilesFolders format");
     }
-    console.log("Project Files and Folders:", projectFilesFolders);
+    //console.log("Project Files and Folders:", projectFilesFolders);
 
 
 

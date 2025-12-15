@@ -1,18 +1,28 @@
-const express = require("express");
 const axios = require("axios");
-
-const router = express.Router();
 
 const APS_CLIENT_ID = process.env.APS_CLIENT_ID;
 const APS_CLIENT_SECRET = process.env.APS_CLIENT_SECRET;
-const APS_BASE_URL = process.env.APS_BASE_URL;
+const APS_CALLBACK_URL = process.env.APS_CALLBACK_URL;
+
+
+/**
+ * Validates required Autodesk Platform Services credentials.
+ * Throws an error if any are missing from the environment.
+ */
+function validateAPSConfig() {
+  if (!APS_CLIENT_ID || !APS_CLIENT_SECRET || !APS_CALLBACK_URL) {
+    throw new Error("Missing APS_CLIENT_ID, APS_CLIENT_SECRET, or APS_CALLBACK_URL in environment");
+  }
+}
+
+/**
+ * Exchanges a three-legged authorization code for an APS access token.
+ * @param {string} code - Authorization code from the OAuth callback
+ * @returns {Promise<Object>} - Token response object
+ */
 
 const GetAPSThreeLeggedToken = async (code) => {
-  if (!APS_CLIENT_ID || !APS_CLIENT_SECRET || !APS_BASE_URL) {
-    throw new Error(
-      "APS_CLIENT_ID, APS_CLIENT_SECRET, or APS_BASE_URL is not defined"
-    );
-  }
+  validateAPSConfig();
 
   try {
     const credentials = `${APS_CLIENT_ID}:${APS_CLIENT_SECRET}`;
@@ -21,7 +31,7 @@ const GetAPSThreeLeggedToken = async (code) => {
     const requestData = {
       grant_type: "authorization_code",
       code: code,
-      redirect_uri: `${APS_BASE_URL}`,
+      redirect_uri: `${APS_CALLBACK_URL}`,
       scope: "data:read data:write data:create account:read viewables:read bucket:read",
     };
 
@@ -37,22 +47,22 @@ const GetAPSThreeLeggedToken = async (code) => {
       { headers }
     );
 
-    console.log("APS Three-Legged Token:", data.access_token);
+    //console.log("Three-legged token data:", data);
     
-    return data.access_token;
-
+    return data;
   } catch (error) {
-    console.error("Error in GetAPSThreeLeggedToken:", error);
+    console.error("Error in GetAPSThreeLeggedToken:", error.message);
     throw new Error("Failed to get APS three-legged token");
   }
 };
 
+/**
+ * Retrieves a two-legged (client credentials) APS token.
+ * @returns {Promise<string>} - Access token string
+ */
+
 const GetAPSToken = async () => {
-    if (!APS_CLIENT_ID || !APS_CLIENT_SECRET || !APS_BASE_URL) {
-        throw new Error(
-            "APS_CLIENT_ID, APS_CLIENT_SECRET, or APS_BASE_URL is not defined"
-        );
-    }
+    validateAPSConfig();
 
     try {
         const credentials = `${APS_CLIENT_ID}:${APS_CLIENT_SECRET}`;
@@ -76,7 +86,7 @@ const GetAPSToken = async () => {
         );
         return data.access_token;
     } catch (error) {
-        console.error("Error in GetAPSToken:", error);
+        console.error("Error in GetAPSToken:", error.message);
         throw new Error("Failed to get APS token");
     }
 }

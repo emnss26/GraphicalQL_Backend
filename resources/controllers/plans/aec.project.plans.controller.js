@@ -4,8 +4,6 @@ const { fetchSheets } = require("../../libs/aec/aec.get.model.sheets.js");
 const { fetchFolderContents } = require("../../libs/data_management/data.management.get.folder.content.js");
 const { ensureTables } = require("../../../utils/db/ensureTables");
 const { fetchVersionApprovalStatuses } = require("../../libs/acc/acc.get.version.approvals.js");
-const { fetchReviewById } = require("../../libs/acc/acc.get.review.by.id.js");
-const {fetchProjectSheets} = require ("../../libs/acc/acc.get.project.sheets.js")
 const axios = require("axios");
 
 /* ----------------------- Helpers de formato ----------------------- */
@@ -408,7 +406,7 @@ const matchPlans = async (req, res) => {
       }
     }
 
-    console.log ("Sheets", projectSheets)
+    //console.log ("Sheets", projectSheets)
 
     // Mapeo de status
     const mapApprovalStatus = (value, label) => {

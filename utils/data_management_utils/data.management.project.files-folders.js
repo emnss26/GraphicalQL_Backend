@@ -7,11 +7,11 @@ const  GetProjectFilesFolders = async (token, hubId, projectId) => {
   try {
     // Get the root folder ID for the project
     const rootFolderId = await getRootFolderId(token, hubId, projectId);
-    console.log("Root Folder ID:", rootFolderId);
+    //console.log("Root Folder ID:", rootFolderId);
 
     // List folders recursively starting from the root folder
     const folders = await listFoldersRecursively(token, projectId, rootFolderId);
-    console.log("Folders:", folders);
+    //console.log("Folders:", folders);
 
     return folders;
   } catch (error) {

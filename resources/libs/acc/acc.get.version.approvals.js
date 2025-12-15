@@ -1,10 +1,11 @@
-// libs/acc/acc.get.version.approvals.js
 const axios = require("axios");
 
-// Normaliza cualquier formato a GUID "pelón":
-// - "b.xxx-yyy-zzz"   -> "xxx-yyy-zzz"
-// - "urn:adsk.workspace:prod.project:xxx-yyy-zzz" -> "xxx-yyy-zzz"
-// - "xxx-yyy-zzz"     -> "xxx-yyy-zzz" (ya está OK)
+/**
+ * Normalize any project ID format to raw GUID.
+ * - "b.xxx-yyy-zzz" → "xxx-yyy-zzz"
+ * - "urn:adsk.workspace:prod.project:xxx-yyy-zzz" → "xxx-yyy-zzz"
+ * - "xxx-yyy-zzz" → "xxx-yyy-zzz" (already normalized)
+ */
 function normalizeAccProjectId(projectId) {
   const s = String(projectId || "");
   if (s.startsWith("urn:adsk.workspace:prod.project:")) {
@@ -13,30 +14,36 @@ function normalizeAccProjectId(projectId) {
   return s.replace(/^b\./i, "");
 }
 
+/**
+ * Fetch version approval history for a given version ID in a project.
+ * @param {string} token - APS access token
+ * @param {string} projectId - Project URN or raw GUID
+ * @param {string} versionId - Version URN
+ * @returns {Promise<Array>} - List of approval status objects
+ */
 async function fetchVersionApprovalStatuses(token, projectId, versionId) {
   const accProjectId = normalizeAccProjectId(projectId);
-  console.log ("ProjectId", projectId)
-  console.log ("version Id", versionId)
-  console.log ("Version Id encoded", encodeURIComponent(versionId))
   const url = `https://developer.api.autodesk.com/construction/reviews/v1/projects/${accProjectId}/versions/${encodeURIComponent(versionId)}/approval-statuses`;
 
   try {
     const { data } = await axios.get(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    console.log ("Revisions data ", data)
-    console.log ("Revisions data results", data.results)
-    console.log ("Revisions data pagination", data.pagination.totalResults)
-    console.log ("Revisions data pagination-totalresults", data.pagination.totalResults)
+
     return Array.isArray(data?.results) ? data.results : [];
   } catch (err) {
-    // 404 => esa versión no tiene historial de aprobación (es normal)
+    // 404 is a valid response: means version has no review history
     if (err?.response?.status === 404) return [];
+    console.error("Error fetching approval statuses:", err.response?.data || err.message);
     throw err;
   }
 }
 
-// “Pick” del último estado útil
+/**
+ * Extracts the most recent approval status from a version's status history.
+ * @param {Array} statuses - Approval status objects
+ * @returns {Object} - Summary with status, reviewId, stepName, and updatedAt
+ */
 function summarizeApprovalStatuses(statuses = []) {
   if (!Array.isArray(statuses) || statuses.length === 0) {
     return {
@@ -46,11 +53,13 @@ function summarizeApprovalStatuses(statuses = []) {
       updatedAt: null,
     };
   }
+
   const sorted = [...statuses].sort((a, b) => {
     const aT = a.attributes?.updatedAt || a.attributes?.createdAt || "";
     const bT = b.attributes?.updatedAt || b.attributes?.createdAt || "";
     return String(bT).localeCompare(String(aT));
   });
+
   const s = sorted[0];
   return {
     status: s.attributes?.status || null,
@@ -60,4 +69,7 @@ function summarizeApprovalStatuses(statuses = []) {
   };
 }
 
-module.exports = { fetchVersionApprovalStatuses, summarizeApprovalStatuses };
+module.exports = {
+  fetchVersionApprovalStatuses,
+  summarizeApprovalStatuses,
+};

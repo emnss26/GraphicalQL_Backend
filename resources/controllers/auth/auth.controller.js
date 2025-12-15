@@ -21,13 +21,26 @@ const GetThreeLegged = async (req, res) => {
       return res.status(500).json({ error: "Failed to retrieve APS token" });
     }
 
-    res.cookie("access_token", token, {
+    const isDev = process.env.NODE_ENV !== "production";
+
+    res.cookie("access_token", token.access_token, {
       maxAge: 3600000,
       httpOnly: true,
-      secure: true,
-      sameSite: "None",
+      secure: !isDev ? true : false, // desactiva secure en dev
+      sameSite: !isDev ? "None" : "Lax", // usa Lax en local
       path: "/",
     });
+
+    res.cookie("refresh_token", token.refresh_token, {
+      httpOnly: true,
+      secure: !isDev ? true : false,
+      sameSite: !isDev ? "None" : "Lax",
+      path: "/",
+    });
+
+    console.log("Three-legged token set in cookies.");
+
+    
 
     return res.redirect(`${frontendUrl}/aec-projects`);
   } catch (error) {

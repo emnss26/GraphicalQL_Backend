@@ -1,37 +1,48 @@
-const axios = require("axios");
-
 const { fetchProjects } = require("../../libs/aec/aec.get.project.js");
+const { fetchHubs } = require("../../libs/aec/aec.get.hubs.js");
+
+const HUBNAME = process.env.HUBNAME;
 
 const GetAECProjects = async (req, res) => {
   try {
-    const token = req.cookies["access_token"];
+    const token = req.cookies?.access_token;
 
     if (!token) {
-      return res.status(401).json({ data: null, error: "No token provided", message: "Authorization token is required" });
+      return res.status(401).json({
+        data: null,
+        error: "Unauthorized",
+        message: "Authorization token is required"
+      });
     }
 
-    const hubId = process.env.HUBAECID;
+    const hubs = await fetchHubs(token);
+    //console.log("🔍 Available Hubs:", hubs.map(h => h.name).join(", "));
 
-    const projects = await fetchProjects(token, hubId);
-    //console.log(`📁 Projects for hub ${hubId}:`, projects);
+    const matchedHub = hubs.find(hub => hub.name === HUBNAME);
+    if (!matchedHub) {
+      return res.status(404).json({
+        data: null,
+        error: "HubNotFound",
+        message: `No hub found with the name: ${HUBNAME}`
+      });
+    }
+
+    const matchedHubId = matchedHub.id;
+    const projects = await fetchProjects(token, matchedHubId);
 
     return res.status(200).json({
-      data: {
-        aecProjects: projects,
-      },
+      data: { aecProjects: projects },
       error: null,
-      message: "Hubs, projects and models retrieved successfully",
+      message: "Projects retrieved successfully"
     });
   } catch (error) {
-    console.error("Error fetching hubs:", error);
-    res.status(500).json({
+    console.error("❌ Error in GetAECProjects:", error);
+    return res.status(500).json({
       data: null,
       error: error.message,
-      message: "Failed to retrieve hubs",
+      message: "Internal server error while retrieving AEC projects"
     });
   }
 };
 
-module.exports = {
-  GetAECProjects,
-};
+module.exports = { GetAECProjects };
