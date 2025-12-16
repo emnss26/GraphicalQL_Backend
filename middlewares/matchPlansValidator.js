@@ -16,12 +16,16 @@ function validateHeaders({ token, altProjectId, selectedFolderId }, res) {
     return res.status(401).json({
       success: false,
       message: "Unauthorized: Missing access token",
+      data: null,
+      error: "Unauthorized",
     });
   }
   if (!altProjectId || !selectedFolderId) {
     return res.status(400).json({
       success: false,
       message: "Missing required headers: x-alt-project-id and selected-folder-id",
+      data: null,
+      error: "MissingHeaders",
     });
   }
   return null;

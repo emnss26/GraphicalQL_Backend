@@ -6,9 +6,10 @@ const GetProjects = async (req, res) => {
     const token = req.cookies["access_token"];
     if (!token) {
       return res.status(401).json({
+        success: false,
+        message: "Access token is required",
         data: null,
         error: "Unauthorized",
-        message: "Access token is required",
       });
     }
 
@@ -21,16 +22,18 @@ const GetProjects = async (req, res) => {
     const accProjects = await fetchaccprojects(token, rawHubId);
 
     return res.status(200).json({
+      success: true,
+      message: "Projects fetched successfully",
       data: { accProjects },
       error: null,
-      message: "Projects fetched successfully",
     });
   } catch (error) {
     console.error("❌ Error fetching ACC projects:", error);
     return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve ACC projects",
       data: null,
       error: error.message,
-      message: "Failed to retrieve ACC projects",
     });
   }
 };

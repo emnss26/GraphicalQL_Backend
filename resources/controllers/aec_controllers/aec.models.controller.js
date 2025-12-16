@@ -6,9 +6,10 @@ const GetAECModels = async (req, res) => {
 
   if (!token) {
     return res.status(401).json({
+      success: false,
+      message: "Authorization token is required",
       data: null,
-      error: "Unauthorized",
-      message: "Authorization token is required"
+      error: "Unauthorized"
     });
   }
 
@@ -16,17 +17,19 @@ const GetAECModels = async (req, res) => {
     const models = await fetchModels(token, projectId);
 
     return res.status(200).json({
+      success: true,
+      message: "Models retrieved successfully",
       data: { models },
-      error: null,
-      message: "Models retrieved successfully"
+      error: null
     });
   } catch (error) {
     console.error(`❌ Error fetching models for project ${projectId}:`, error.message);
 
     return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve models",
       data: null,
-      error: error.message,
-      message: "Failed to retrieve models"
+      error: error.message
     });
   }
 };

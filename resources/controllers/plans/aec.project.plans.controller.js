@@ -64,10 +64,10 @@ const listPlans = async (req, res) => {
     const rows = await knex("user_plans")
       .where({ project_id: req.params.projectId })
       .orderBy("id", "asc");
-    res.json({ success: true, plans: rows });
+    res.json({ success: true, message: "Planes listados", data: { plans: rows }, error: null });
   } catch (err) {
     console.error("❌ listPlans:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanListError" });
   }
 };
 
@@ -78,7 +78,7 @@ const importPlans = async (req, res) => {
     const { plans = [] } = req.body;
 
     if (!Array.isArray(plans) || !plans.length) {
-      return res.status(400).json({ success: false, message: "Payload vacío" });
+      return res.status(400).json({ success: false, message: "Payload vacío", data: null, error: "ValidationError" });
     }
 
     const looksLikeNumber = (s) => /^[A-Z0-9_.-]+$/.test(String(s || "").trim());
@@ -121,10 +121,10 @@ const importPlans = async (req, res) => {
     }
 
     const rows = await knex("user_plans").where({ project_id: projectId }).orderBy("id", "asc");
-    res.json({ success: true, plans: rows });
+    res.json({ success: true, message: "Planes importados", data: { plans: rows }, error: null });
   } catch (err) {
     console.error("❌ importPlans:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanImportError" });
   }
 };
 
@@ -163,18 +163,18 @@ const updatePlan = async (req, res) => {
       }
     }
 
-    if (!Object.keys(patch).length) return res.status(400).json({ success: false, message: "Nada que actualizar" });
+    if (!Object.keys(patch).length) return res.status(400).json({ success: false, message: "Nada que actualizar", data: null, error: "ValidationError" });
 
     const exists = await knex("user_plans").where({ id, project_id: projectId }).first();
-    if (!exists) return res.status(404).json({ success: false, message: "Plan no encontrado" });
+    if (!exists) return res.status(404).json({ success: false, message: "Plan no encontrado", data: null, error: "NotFound" });
 
     patch.updated_at = knex.fn.now();
     await knex("user_plans").where({ id }).update(patch);
     const updated = await knex("user_plans").where({ id }).first();
-    res.json({ success: true, plan: updated });
+    res.json({ success: true, message: "Plan actualizado", data: { plan: updated }, error: null });
   } catch (err) {
     console.error("❌ updatePlan:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanUpdateError" });
   }
 };
 
@@ -183,10 +183,10 @@ const deletePlan = async (req, res) => {
     await ensureTables(knex);
     const { projectId, id } = { projectId: req.params.projectId, id: Number(req.params.id) };
     await knex("user_plans").where({ id, project_id: projectId }).del();
-    res.json({ success: true });
+    res.json({ success: true, message: "Plan eliminado", data: null, error: null });
   } catch (err) {
     console.error("❌ deletePlan:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanDeleteError" });
   }
 };
 

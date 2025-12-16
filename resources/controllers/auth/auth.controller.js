@@ -11,14 +11,14 @@ const GetThreeLegged = async (req, res) => {
   const { code } = req.query;
 
   if (!code) {
-    return res.status(400).json({ error: "Authorization code is required" });
+    return res.status(400).json({ success: false, message: "Authorization code is required", data: null, error: "ValidationError" });
   }
 
   try {
     const token = await GetAPSThreeLeggedToken(code);
 
     if (!token) {
-      return res.status(500).json({ error: "Failed to retrieve APS token" });
+      return res.status(500).json({ success: false, message: "Failed to retrieve APS token", data: null, error: "TokenRetrievalFailed" });
     }
 
     const isDev = process.env.NODE_ENV !== "production";
@@ -47,7 +47,7 @@ const GetThreeLegged = async (req, res) => {
     console.error("Error in GetThreeLegged:", error);
     return res
       .status(500)
-      .json({ error: "Failed to get APS three-legged token" });
+      .json({ success: false, message: "Failed to get APS three-legged token", data: null, error: "TokenRetrievalFailed" });
   }
 };
 
@@ -56,22 +56,24 @@ const GetToken = async (req, res) => {
     const token = await GetAPSToken();
 
     if (!token) {
-      return res.status(500).json({ error: "Failed to retrieve APS token" });
+      return res.status(500).json({ success: false, message: "Failed to retrieve APS token", data: null, error: "TokenRetrievalFailed" });
     }
 
     res.status(200).json({
+      success: true,
+      message: "Token generated correctly",
       data: {
         access_token: token,
       },
       error: null,
-      message: "Token generated correctly",
     });
   } catch (error) {
     res.status(500).json({
-  data: null,
-  error: error.message,
-  message: "Token error",
-});
+      success: false,
+      message: "Token error",
+      data: null,
+      error: error.message,
+    });
   }
 };
 
@@ -83,10 +85,12 @@ const PostLogout = async (req, res) => {
       sameSite: "None",
       path: "/",
     });
-    res.status(200).json({ message: "Logged out" });
+    res.status(200).json({ success: true, message: "Logged out", data: null, error: null });
   } catch (error) {
     res.status(500).json({
+      success: false,
       message: "Error logging out",
+      data: null,
       error: error.message,
     });
   }
