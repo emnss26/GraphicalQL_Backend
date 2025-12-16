@@ -1,7 +1,7 @@
 const axios = require("axios");
 
 const { fetchaccprojects } = require("../../libs/acc/acc.get.projects.js");
-const { fetchDataManagementHubId } = require("../../libs/data_management/data.managment.get.hub.id.js");
+const { fetchDataManagementHubId } = require("../../libs/data_management/data.management.get.hub.id.js");
 
 const GetProjects = async (req, res) => {
   try {
