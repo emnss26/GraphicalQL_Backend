@@ -1,16 +1,14 @@
 const { fetchFolderTree } = require("../../../utils/aec_utils/aec.folderTree");
 
-const GetAECProjectFolders = async (req, res) => {
+const GetAECProjectFolders = async (req, res, next) => {
   const { projectId } = req.params;
   const token = req.cookies?.access_token;
 
   if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: "Authorization token is required",
-      data: null,
-      error: "Unauthorized"
-    });
+    const error = new Error("Authorization token is required");
+    error.status = 401;
+    error.code = "Unauthorized";
+    return next(error);
   }
 
   try {
@@ -23,13 +21,8 @@ const GetAECProjectFolders = async (req, res) => {
       error: null
     });
   } catch (error) {
-    console.error("❌ Error fetching folder tree:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve folder tree",
-      data: null,
-      error: error.message
-    });
+    error.code = error.code || "AECFolderTreeFetchFailed";
+    return next(error);
   }
 };
 

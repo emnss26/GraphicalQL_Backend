@@ -3,29 +3,25 @@ const { fetchHubs } = require("../../libs/aec/aec.get.hubs.js");
 
 const HUBNAME = process.env.HUBNAME;
 
-const GetAECProjects = async (req, res) => {
+const GetAECProjects = async (req, res, next) => {
   try {
     const token = req.cookies?.access_token;
 
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Authorization token is required",
-        data: null,
-        error: "Unauthorized"
-      });
+      const error = new Error("Authorization token is required");
+      error.status = 401;
+      error.code = "Unauthorized";
+      return next(error);
     }
 
     const hubs = await fetchHubs(token);
 
     const matchedHub = hubs.find(hub => hub.name === HUBNAME);
     if (!matchedHub) {
-      return res.status(404).json({
-        success: false,
-        message: `No hub found with the name: ${HUBNAME}`,
-        data: null,
-        error: "HubNotFound"
-      });
+      const error = new Error(`No hub found with the name: ${HUBNAME}`);
+      error.status = 404;
+      error.code = "HubNotFound";
+      return next(error);
     }
 
     const matchedHubId = matchedHub.id;
@@ -38,13 +34,8 @@ const GetAECProjects = async (req, res) => {
       error: null
     });
   } catch (error) {
-    console.error("❌ Error in GetAECProjects:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error while retrieving AEC projects",
-      data: null,
-      error: error.message
-    });
+    error.code = error.code || "AECProjectsFetchFailed";
+    return next(error);
   }
 };
 

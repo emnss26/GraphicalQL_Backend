@@ -6,7 +6,10 @@ function errorHandler(err, req, res, next) {
     success: false,
     message: err.message || 'Internal Server Error',
     data: null,
-    error: config.env !== 'production' ? err.stack : err.code || err.message || null,
+    error:
+      config.env !== 'production'
+        ? { code: err.code || null, detail: err.stack || err.message }
+        : err.code || err.message || null,
   };
 
   console.error(`❌ Error [${statusCode}]:`, err.stack);

@@ -1,22 +1,20 @@
 const { fetchaccprojects } = require("../../libs/acc/acc.get.projects.js");
 const { fetchDataManagementHubId } = require("../../libs/data_management/data.management.get.hub.id.js");
 
-const GetProjects = async (req, res) => {
+const GetProjects = async (req, res, next) => {
   try {
     const token = req.cookies["access_token"];
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Access token is required",
-        data: null,
-        error: "Unauthorized",
-      });
+      const error = new Error("Access token is required");
+      error.status = 401;
+      error.code = "Unauthorized";
+      return next(error);
     }
 
     const rawHubId = process.env.RAWHUBID;
 
     // Get Hub ID from Data Management
-    const dataManagementHubId = await fetchDataManagementHubId(token, rawHubId);
+    await fetchDataManagementHubId(token, rawHubId);
 
     // Get ACC projects from Autodesk Construction Cloud
     const accProjects = await fetchaccprojects(token, rawHubId);
@@ -28,13 +26,8 @@ const GetProjects = async (req, res) => {
       error: null,
     });
   } catch (error) {
-    console.error("❌ Error fetching ACC projects:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve ACC projects",
-      data: null,
-      error: error.message,
-    });
+    error.code = error.code || "ACCProjectsFetchFailed";
+    return next(error);
   }
 };
 

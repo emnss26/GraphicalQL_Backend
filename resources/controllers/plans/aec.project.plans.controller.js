@@ -58,7 +58,7 @@ const normalizeFileBase = (displayName) => upperNoAccents(displayName).replace(/
 const getLeadingSheetNumber = (displayName) => upperNoAccents(displayName).match(/^([A-Z0-9-]+)/)?.[1] || null;
 const getV1DateFromInclVersions = (item) => normDate(item?.attributes?.createTime);
 
-const listPlans = async (req, res) => {
+const listPlans = async (req, res, next) => {
   try {
     await ensureTables(knex);
     const rows = await knex("user_plans")
@@ -66,19 +66,22 @@ const listPlans = async (req, res) => {
       .orderBy("id", "asc");
     res.json({ success: true, message: "Planes listados", data: { plans: rows }, error: null });
   } catch (err) {
-    console.error("❌ listPlans:", err);
-    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanListError" });
+    err.code = err.code || "PlanListError";
+    return next(err);
   }
 };
 
-const importPlans = async (req, res) => {
+const importPlans = async (req, res, next) => {
   try {
     await ensureTables(knex);
     const { projectId } = req.params;
     const { plans = [] } = req.body;
 
     if (!Array.isArray(plans) || !plans.length) {
-      return res.status(400).json({ success: false, message: "Payload vacío", data: null, error: "ValidationError" });
+      const error = new Error("Payload vacío");
+      error.status = 400;
+      error.code = "ValidationError";
+      return next(error);
     }
 
     const looksLikeNumber = (s) => /^[A-Z0-9_.-]+$/.test(String(s || "").trim());
@@ -123,12 +126,12 @@ const importPlans = async (req, res) => {
     const rows = await knex("user_plans").where({ project_id: projectId }).orderBy("id", "asc");
     res.json({ success: true, message: "Planes importados", data: { plans: rows }, error: null });
   } catch (err) {
-    console.error("❌ importPlans:", err);
-    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanImportError" });
+    err.code = err.code || "PlanImportError";
+    return next(err);
   }
 };
 
-const updatePlan = async (req, res) => {
+const updatePlan = async (req, res, next) => {
   try {
     await ensureTables(knex);
     const { id, projectId } = { id: Number(req.params.id), projectId: req.params.projectId };
@@ -163,30 +166,40 @@ const updatePlan = async (req, res) => {
       }
     }
 
-    if (!Object.keys(patch).length) return res.status(400).json({ success: false, message: "Nada que actualizar", data: null, error: "ValidationError" });
+    if (!Object.keys(patch).length) {
+      const error = new Error("Nada que actualizar");
+      error.status = 400;
+      error.code = "ValidationError";
+      return next(error);
+    }
 
     const exists = await knex("user_plans").where({ id, project_id: projectId }).first();
-    if (!exists) return res.status(404).json({ success: false, message: "Plan no encontrado", data: null, error: "NotFound" });
+    if (!exists) {
+      const error = new Error("Plan no encontrado");
+      error.status = 404;
+      error.code = "NotFound";
+      return next(error);
+    }
 
     patch.updated_at = knex.fn.now();
     await knex("user_plans").where({ id }).update(patch);
     const updated = await knex("user_plans").where({ id }).first();
     res.json({ success: true, message: "Plan actualizado", data: { plan: updated }, error: null });
   } catch (err) {
-    console.error("❌ updatePlan:", err);
-    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanUpdateError" });
+    err.code = err.code || "PlanUpdateError";
+    return next(err);
   }
 };
 
-const deletePlan = async (req, res) => {
+const deletePlan = async (req, res, next) => {
   try {
     await ensureTables(knex);
     const { projectId, id } = { projectId: req.params.projectId, id: Number(req.params.id) };
     await knex("user_plans").where({ id, project_id: projectId }).del();
     res.json({ success: true, message: "Plan eliminado", data: null, error: null });
   } catch (err) {
-    console.error("❌ deletePlan:", err);
-    res.status(500).json({ success: false, message: err.message, data: null, error: err.message || "PlanDeleteError" });
+    err.code = err.code || "PlanDeleteError";
+    return next(err);
   }
 };
 

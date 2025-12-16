@@ -1,10 +1,13 @@
 const knex = require('knex')(require('../../../knexfile').development);
 
-const SetSelectedFolder = async (req, res) => {
+const SetSelectedFolder = async (req, res, next) => {
   const { projectId } = req.params;
   const { folderId } = req.body;
   if (!projectId || !folderId) {
-    return res.status(400).json({ success: false, message: "Missing params", data: null, error: "ValidationError" });
+    const error = new Error("Missing params");
+    error.status = 400;
+    error.code = "ValidationError";
+    return next(error);
   }
 
   try {
@@ -16,16 +19,21 @@ const SetSelectedFolder = async (req, res) => {
     });
     res.status(200).json({ success: true, message: "Folder seleccionado con éxito", data: { folderId }, error: null });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: "Error al seleccionar folder", data: null, error: error.message });
+    error.code = error.code || "FolderSelectionError";
+    return next(error);
   }
 };
 
-const GetSelectedFolder = async (req, res) => {
-  const { projectId } = req.params;
-  const result = await knex('plan_folder_selection').where({ project_id: projectId }).first();
-  
-  res.json({ success: true, message: "Folder seleccionado obtenido", data: { folderId: result ? result.folder_id : null }, error: null });
+const GetSelectedFolder = async (req, res, next) => {
+  try {
+    const { projectId } = req.params;
+    const result = await knex('plan_folder_selection').where({ project_id: projectId }).first();
+
+    res.json({ success: true, message: "Folder seleccionado obtenido", data: { folderId: result ? result.folder_id : null }, error: null });
+  } catch (error) {
+    error.code = error.code || "FolderSelectionFetchError";
+    return next(error);
+  }
 };
 
 module.exports = { SetSelectedFolder, GetSelectedFolder };
