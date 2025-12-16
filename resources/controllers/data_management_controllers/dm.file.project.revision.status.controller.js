@@ -14,9 +14,10 @@ const GetFileRevisionStatus = async (req, res) => {
 
   if (!token) {
     return res.status(401).json({
+      success: false,
+      message: "Authorization token is required",
       data: null,
       error: "No token provided",
-      message: "Authorization token is required",
     });
   }
 
@@ -41,20 +42,22 @@ const GetFileRevisionStatus = async (req, res) => {
     }
 
     res.status(200).json({
+      success: true,
+      message: "Project reviews retrieved successfully",
       data: {
         projectFilesFolders,
         projectReviews,
       },
       error: null,
-      message: "Project reviews retrieved successfully",
     });
 
   } catch (error) {
     console.error("Error fetching project reviews:", error);
     return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve project reviews",
       data: null,
       error: error.message,
-      message: "Failed to retrieve project reviews",
     });
   }
 };

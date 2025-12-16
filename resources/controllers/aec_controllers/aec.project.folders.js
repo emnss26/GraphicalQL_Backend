@@ -6,9 +6,10 @@ const GetAECProjectFolders = async (req, res) => {
 
   if (!token) {
     return res.status(401).json({
+      success: false,
+      message: "Authorization token is required",
       data: null,
-      error: "Unauthorized",
-      message: "Authorization token is required"
+      error: "Unauthorized"
     });
   }
 
@@ -16,16 +17,18 @@ const GetAECProjectFolders = async (req, res) => {
     const folderTree = await fetchFolderTree(token, projectId);
 
     return res.status(200).json({
+      success: true,
+      message: "Folder tree retrieved successfully",
       data: { folderTree },
-      error: null,
-      message: "Folder tree retrieved successfully"
+      error: null
     });
   } catch (error) {
     console.error("❌ Error fetching folder tree:", error);
     return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve folder tree",
       data: null,
-      error: error.message,
-      message: "Failed to retrieve folder tree"
+      error: error.message
     });
   }
 };

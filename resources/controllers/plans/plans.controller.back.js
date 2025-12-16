@@ -107,9 +107,9 @@ const listPlans = async (req, res) => {
     const rows = await knex("user_plans")
       .where({ project_id: req.params.projectId })
       .orderBy("id", "asc");
-    res.json({ plans: rows });
+    res.json({ success: true, message: "Planes listados", data: { plans: rows }, error: null });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Error al listar planes" });
+    res.status(500).json({ success: false, message: e.message || "Error al listar planes", data: null, error: e.message || "PlanListError" });
   }
 };
 
@@ -120,7 +120,7 @@ const importPlans = async (req, res) => {
     const projectId = req.params.projectId;
     const { plans = [] } = req.body || {};
     if (!Array.isArray(plans) || !plans.length) {
-      return res.status(400).json({ error: "Payload vacío" });
+      return res.status(400).json({ success: false, message: "Payload vacío", data: null, error: "ValidationError" });
     }
 
     // --- Heurística opcional: si detectamos que vienen invertidos, los corregimos ---
@@ -192,9 +192,9 @@ const importPlans = async (req, res) => {
       .where({ project_id: projectId })
       .orderBy("id", "asc");
 
-    res.json({ ok: true, plans: rows });
+    res.json({ success: true, message: "Planes importados", data: { plans: rows }, error: null });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Error al importar planes" });
+    res.status(500).json({ success: false, message: e.message || "Error al importar planes", data: null, error: e.message || "PlanImportError" });
   }
 };
 
@@ -238,19 +238,19 @@ const updatePlan = async (req, res) => {
       }
     }
     if (!Object.keys(patch).length)
-      return res.status(400).json({ error: "Nada que actualizar" });
+      return res.status(400).json({ success: false, message: "Nada que actualizar", data: null, error: "ValidationError" });
 
     const exists = await knex("user_plans")
       .where({ id, project_id: projectId })
       .first();
-    if (!exists) return res.status(404).json({ error: "Plan no encontrado" });
+    if (!exists) return res.status(404).json({ success: false, message: "Plan no encontrado", data: null, error: "NotFound" });
 
     patch.updated_at = knex.fn.now();
     await knex("user_plans").where({ id }).update(patch);
     const updated = await knex("user_plans").where({ id }).first();
-    res.json({ ok: true, plan: updated });
+    res.json({ success: true, message: "Plan actualizado", data: { plan: updated }, error: null });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Error al actualizar plan" });
+    res.status(500).json({ success: false, message: e.message || "Error al actualizar plan", data: null, error: e.message || "PlanUpdateError" });
   }
 };
 
@@ -263,9 +263,9 @@ const deletePlan = async (req, res) => {
       id: Number(req.params.id),
     };
     await knex("user_plans").where({ id, project_id: projectId }).del();
-    res.json({ ok: true });
+    res.json({ success: true, message: "Plan eliminado", data: null, error: null });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Error al eliminar plan" });
+    res.status(500).json({ success: false, message: e.message || "Error al eliminar plan", data: null, error: e.message || "PlanDeleteError" });
   }
 };
 
@@ -280,11 +280,13 @@ const matchPlans = async (req, res) => {
     const altProjectId = req.headers["x-alt-project-id"];  // 'b.xxx' o URN
     const selectedFolderId = req.headers["selected-folder-id"];
 
-    if (!token) return res.status(401).json({ error: "Unauthorized" });
+    if (!token) return res.status(401).json({ success: false, message: "Unauthorized", data: null, error: "Unauthorized" });
     if (!altProjectId || !selectedFolderId) {
       return res.status(400).json({
-        error: "Missing folder selection",
+        success: false,
         message: "Debes enviar headers: x-alt-project-id y selected-folder-id (folder de publicación).",
+        data: null,
+        error: "Missing folder selection",
       });
     }
 
@@ -316,7 +318,7 @@ const matchPlans = async (req, res) => {
     // 2) Modelos seleccionados
     const selectedRows = await knex("model_selection").where({ project_id: projectId }).select("model_id");
     const modelIds = selectedRows.map((r) => r.model_id);
-    if (!modelIds.length) return res.status(400).json({ error: "No models selected for this project" });
+    if (!modelIds.length) return res.status(400).json({ success: false, message: "No models selected for this project", data: null, error: "NoModelsSelected" });
 
     // 3) Sheets por modelo (AEC GraphQL)
     const allSheets = [];
@@ -571,16 +573,19 @@ const matchPlans = async (req, res) => {
 
     res.set("Cache-Control", "no-store");
     return res.status(200).json({
-      ok: true,
-      matchedPlans: patches.length,
-      totalPlans: plans.length,
-      details,
+      success: true,
       message:
         "Se actualizaron current_revision/current_revision_date, actual_gen_date (V1), flujo de aprobación (Reviews) y emisión real (Sheets.createdAt).",
+      data: {
+        matchedPlans: patches.length,
+        totalPlans: plans.length,
+        details,
+      },
+      error: null,
     });
   } catch (e) {
     console.error("matchPlans error:", e?.message || e);
-    return res.status(500).json({ error: e?.message || "Match failed" });
+    return res.status(500).json({ success: false, message: e?.message || "Match failed", data: null, error: e?.message || "MatchError" });
   }
 };
 

@@ -13,17 +13,19 @@ const GetModelSheets = async (req, res) => {
 
   if (!token) {
     return res.status(401).json({
+      success: false,
+      message: "Authorization token is required",
       data: null,
-      error: "Unauthorized",
-      message: "Authorization token is required"
+      error: "Unauthorized"
     });
   }
 
   if (!altProjectId) {
     return res.status(400).json({
+      success: false,
+      message: "Alternative Project ID is required",
       data: null,
-      error: "MissingAltProjectId",
-      message: "Alternative Project ID is required"
+      error: "MissingAltProjectId"
     });
   }
 
@@ -37,9 +39,10 @@ const GetModelSheets = async (req, res) => {
 
     if (!selectedModelIds.length) {
       return res.status(404).json({
+        success: false,
+        message: "No models selected for this project",
         data: null,
-        error: "NoModelsSelected",
-        message: "No models selected for this project"
+        error: "NoModelsSelected"
       });
     }
 
@@ -107,21 +110,23 @@ const GetModelSheets = async (req, res) => {
     );
 
     return res.status(200).json({
+      success: true,
+      message: "Plans retrieved successfully",
       data: {
         sheets,
         files,
         projectReviews,
         revisionStatuses
       },
-      error: null,
-      message: "Plans retrieved successfully"
+      error: null
     });
   } catch (error) {
     console.error("❌ Error fetching plans:", error);
     return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve plans",
       data: null,
-      error: error.message,
-      message: "Failed to retrieve plans"
+      error: error.message
     });
   }
 };

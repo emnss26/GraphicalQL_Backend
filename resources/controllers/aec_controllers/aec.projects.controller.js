@@ -9,21 +9,22 @@ const GetAECProjects = async (req, res) => {
 
     if (!token) {
       return res.status(401).json({
+        success: false,
+        message: "Authorization token is required",
         data: null,
-        error: "Unauthorized",
-        message: "Authorization token is required"
+        error: "Unauthorized"
       });
     }
 
     const hubs = await fetchHubs(token);
-    //console.log("🔍 Available Hubs:", hubs.map(h => h.name).join(", "));
 
     const matchedHub = hubs.find(hub => hub.name === HUBNAME);
     if (!matchedHub) {
       return res.status(404).json({
+        success: false,
+        message: `No hub found with the name: ${HUBNAME}`,
         data: null,
-        error: "HubNotFound",
-        message: `No hub found with the name: ${HUBNAME}`
+        error: "HubNotFound"
       });
     }
 
@@ -31,16 +32,18 @@ const GetAECProjects = async (req, res) => {
     const projects = await fetchProjects(token, matchedHubId);
 
     return res.status(200).json({
+      success: true,
+      message: "Projects retrieved successfully",
       data: { aecProjects: projects },
-      error: null,
-      message: "Projects retrieved successfully"
+      error: null
     });
   } catch (error) {
     console.error("❌ Error in GetAECProjects:", error);
     return res.status(500).json({
+      success: false,
+      message: "Internal server error while retrieving AEC projects",
       data: null,
-      error: error.message,
-      message: "Internal server error while retrieving AEC projects"
+      error: error.message
     });
   }
 };

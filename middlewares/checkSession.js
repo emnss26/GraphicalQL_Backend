@@ -7,7 +7,7 @@ async function checkSession(req, res, next) {
   const refreshToken = req.cookies?.refresh_token;
 
   if (!accessToken) {
-    return res.status(401).json({ message: 'No session. Please log in.' });
+    return res.status(401).json({ success: false, message: 'No session. Please log in.', data: null, error: 'Unauthorized' });
   }
 
   try {
@@ -45,11 +45,11 @@ async function checkSession(req, res, next) {
       return next();
     }
 
-    return res.status(401).json({ message: 'Session expired. Please log in again.' });
+    return res.status(401).json({ success: false, message: 'Session expired. Please log in again.', data: null, error: 'Unauthorized' });
 
   } catch (err) {
     console.error('Auth check failed:', err.message);
-    return res.status(401).json({ message: 'Invalid session.' });
+    return res.status(401).json({ success: false, message: 'Invalid session.', data: null, error: 'Unauthorized' });
   }
 }
 

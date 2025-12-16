@@ -27,7 +27,7 @@ app.use('/acc', require('./resources/routers/acc.router'));
 app.use('/plans', require('./resources/routers/plans.router'));
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Backend API is alive 🚀' });
+  res.json({ success: true, message: 'Backend API is alive 🚀', data: {}, error: null });
 });
 
 app.listen(config.port, () => {
