@@ -5,28 +5,24 @@ const { fetchSheets } = require("../../libs/aec/aec.get.model.sheets.js");
 const { fetchFolderContents } = require("../../libs/data_management/data.management.get.folder.content.js");
 const { GetProjectReviews } = require("../../../utils/data_management_utils/data.management.project.reviews.utils.js");
 
-const GetModelSheets = async (req, res) => {
+const GetModelSheets = async (req, res, next) => {
   const { projectId } = req.params;
   const token = req.cookies?.access_token;
   const altProjectId = req.headers['x-alt-project-id'];
   const selectedFolderId = req.headers['selected-folder-id'];
 
   if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: "Authorization token is required",
-      data: null,
-      error: "Unauthorized"
-    });
+    const error = new Error("Authorization token is required");
+    error.status = 401;
+    error.code = "Unauthorized";
+    return next(error);
   }
 
   if (!altProjectId) {
-    return res.status(400).json({
-      success: false,
-      message: "Alternative Project ID is required",
-      data: null,
-      error: "MissingAltProjectId"
-    });
+    const error = new Error("Alternative Project ID is required");
+    error.status = 400;
+    error.code = "MissingAltProjectId";
+    return next(error);
   }
 
   try {
@@ -38,12 +34,10 @@ const GetModelSheets = async (req, res) => {
     const selectedModelIds = selectedRows.map(row => row.model_id);
 
     if (!selectedModelIds.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No models selected for this project",
-        data: null,
-        error: "NoModelsSelected"
-      });
+      const error = new Error("No models selected for this project");
+      error.status = 404;
+      error.code = "NoModelsSelected";
+      return next(error);
     }
 
     // Fetch sheets from selected models
@@ -121,13 +115,8 @@ const GetModelSheets = async (req, res) => {
       error: null
     });
   } catch (error) {
-    console.error("❌ Error fetching plans:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve plans",
-      data: null,
-      error: error.message
-    });
+    error.code = error.code || "AECPlansFetchFailed";
+    return next(error);
   }
 };
 

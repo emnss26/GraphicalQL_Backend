@@ -2,11 +2,14 @@ const axios = require('axios');
 
 const APS_BASE = process.env.AUTODESK_BASE_URL || 'https://developer.api.autodesk.com';
 
-const GetUserProfile = async (req, res) => {
+const GetUserProfile = async (req, res, next) => {
   try {
     const token = req.cookies['access_token'];
     if (!token) {
-      return res.status(401).json({ success: false, message: 'Missing access token', data: null, error: 'Unauthorized' });
+      const error = new Error('Missing access token');
+      error.status = 401;
+      error.code = 'Unauthorized';
+      return next(error);
     }
 
     const { data } = await axios.get(`${APS_BASE}/userprofile/v1/users/@me`, {
@@ -29,16 +32,14 @@ const GetUserProfile = async (req, res) => {
     const status = error?.response?.status || 500;
 
     if (status === 401) {
-      return res.status(401).json({ success: false, message: 'Token expired or invalid', data: null, error: 'Unauthorized' });
+      error.status = 401;
+      error.code = 'Unauthorized';
+      error.message = 'Token expired or invalid';
+      return next(error);
     }
 
-    console.error('Error fetching user profile:', error?.message || error);
-    return res.status(500).json({
-      success: false,
-      message: error?.message || 'Error fetching user profile',
-      data: null,
-      error: 'ProfileFetchFailed',
-    });
+    error.code = error.code || 'ProfileFetchFailed';
+    return next(error);
   }
 };
 

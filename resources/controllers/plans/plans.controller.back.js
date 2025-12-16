@@ -100,7 +100,7 @@ function getV1DateFromInclVersions(item) {
 }
 
 /* ---------------------- CRUD de planes ---------------------- */
-const listPlans = async (req, res) => {
+const listPlans = async (req, res, next) => {
   try {
     await ensureTables(knex);
 
@@ -109,18 +109,22 @@ const listPlans = async (req, res) => {
       .orderBy("id", "asc");
     res.json({ success: true, message: "Planes listados", data: { plans: rows }, error: null });
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message || "Error al listar planes", data: null, error: e.message || "PlanListError" });
+    e.code = e.code || "PlanListError";
+    return next(e);
   }
 };
 
-const importPlans = async (req, res) => {
+const importPlans = async (req, res, next) => {
   try {
     await ensureTables(knex);
 
     const projectId = req.params.projectId;
     const { plans = [] } = req.body || {};
     if (!Array.isArray(plans) || !plans.length) {
-      return res.status(400).json({ success: false, message: "Payload vacío", data: null, error: "ValidationError" });
+      const error = new Error("Payload vacío");
+      error.status = 400;
+      error.code = "ValidationError";
+      return next(error);
     }
 
     // --- Heurística opcional: si detectamos que vienen invertidos, los corregimos ---
@@ -194,11 +198,12 @@ const importPlans = async (req, res) => {
 
     res.json({ success: true, message: "Planes importados", data: { plans: rows }, error: null });
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message || "Error al importar planes", data: null, error: e.message || "PlanImportError" });
+    e.code = e.code || "PlanImportError";
+    return next(e);
   }
 };
 
-const updatePlan = async (req, res) => {
+const updatePlan = async (req, res, next) => {
   try {
     await ensureTables(knex);
 
@@ -237,24 +242,34 @@ const updatePlan = async (req, res) => {
         patch[dbKey] = allowed[k](req.body[k]);
       }
     }
-    if (!Object.keys(patch).length)
-      return res.status(400).json({ success: false, message: "Nada que actualizar", data: null, error: "ValidationError" });
+    if (!Object.keys(patch).length) {
+      const error = new Error("Nada que actualizar");
+      error.status = 400;
+      error.code = "ValidationError";
+      return next(error);
+    }
 
     const exists = await knex("user_plans")
       .where({ id, project_id: projectId })
       .first();
-    if (!exists) return res.status(404).json({ success: false, message: "Plan no encontrado", data: null, error: "NotFound" });
+    if (!exists) {
+      const error = new Error("Plan no encontrado");
+      error.status = 404;
+      error.code = "NotFound";
+      return next(error);
+    }
 
     patch.updated_at = knex.fn.now();
     await knex("user_plans").where({ id }).update(patch);
     const updated = await knex("user_plans").where({ id }).first();
     res.json({ success: true, message: "Plan actualizado", data: { plan: updated }, error: null });
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message || "Error al actualizar plan", data: null, error: e.message || "PlanUpdateError" });
+    e.code = e.code || "PlanUpdateError";
+    return next(e);
   }
 };
 
-const deletePlan = async (req, res) => {
+const deletePlan = async (req, res, next) => {
   try {
     await ensureTables(knex);
 
@@ -265,12 +280,13 @@ const deletePlan = async (req, res) => {
     await knex("user_plans").where({ id, project_id: projectId }).del();
     res.json({ success: true, message: "Plan eliminado", data: null, error: null });
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message || "Error al eliminar plan", data: null, error: e.message || "PlanDeleteError" });
+    e.code = e.code || "PlanDeleteError";
+    return next(e);
   }
 };
 
 /* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
-const matchPlans = async (req, res) => {
+const matchPlans = async (req, res, next) => {
   try {
     const { fetchReviewById } = require("../../libs/acc/acc.get.review.by.id.js");
     const { fetchProjectSheets } = require("../../libs/acc/acc.get.project.sheets.js");
@@ -280,14 +296,17 @@ const matchPlans = async (req, res) => {
     const altProjectId = req.headers["x-alt-project-id"];  // 'b.xxx' o URN
     const selectedFolderId = req.headers["selected-folder-id"];
 
-    if (!token) return res.status(401).json({ success: false, message: "Unauthorized", data: null, error: "Unauthorized" });
+    if (!token) {
+      const error = new Error("Unauthorized");
+      error.status = 401;
+      error.code = "Unauthorized";
+      return next(error);
+    }
     if (!altProjectId || !selectedFolderId) {
-      return res.status(400).json({
-        success: false,
-        message: "Debes enviar headers: x-alt-project-id y selected-folder-id (folder de publicación).",
-        data: null,
-        error: "Missing folder selection",
-      });
+      const error = new Error("Debes enviar headers: x-alt-project-id y selected-folder-id (folder de publicación).");
+      error.status = 400;
+      error.code = "MissingFolderSelection";
+      return next(error);
     }
 
     // DM -> b.<guid>, Reviews -> GUID “pelón”
@@ -318,7 +337,12 @@ const matchPlans = async (req, res) => {
     // 2) Modelos seleccionados
     const selectedRows = await knex("model_selection").where({ project_id: projectId }).select("model_id");
     const modelIds = selectedRows.map((r) => r.model_id);
-    if (!modelIds.length) return res.status(400).json({ success: false, message: "No models selected for this project", data: null, error: "NoModelsSelected" });
+    if (!modelIds.length) {
+      const error = new Error("No models selected for this project");
+      error.status = 400;
+      error.code = "NoModelsSelected";
+      return next(error);
+    }
 
     // 3) Sheets por modelo (AEC GraphQL)
     const allSheets = [];
@@ -584,8 +608,8 @@ const matchPlans = async (req, res) => {
       error: null,
     });
   } catch (e) {
-    console.error("matchPlans error:", e?.message || e);
-    return res.status(500).json({ success: false, message: e?.message || "Match failed", data: null, error: e?.message || "MatchError" });
+    e.code = e.code || "MatchError";
+    return next(e);
   }
 };
 

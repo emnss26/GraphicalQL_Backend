@@ -7,18 +7,24 @@ const {
 
 const frontendUrl = process.env.FRONTEND_URL;
 
-const GetThreeLegged = async (req, res) => {
+const GetThreeLegged = async (req, res, next) => {
   const { code } = req.query;
 
   if (!code) {
-    return res.status(400).json({ success: false, message: "Authorization code is required", data: null, error: "ValidationError" });
+    const error = new Error("Authorization code is required");
+    error.status = 400;
+    error.code = "ValidationError";
+    return next(error);
   }
 
   try {
     const token = await GetAPSThreeLeggedToken(code);
 
     if (!token) {
-      return res.status(500).json({ success: false, message: "Failed to retrieve APS token", data: null, error: "TokenRetrievalFailed" });
+      const error = new Error("Failed to retrieve APS token");
+      error.status = 500;
+      error.code = "TokenRetrievalFailed";
+      return next(error);
     }
 
     const isDev = process.env.NODE_ENV !== "production";
@@ -44,19 +50,20 @@ const GetThreeLegged = async (req, res) => {
 
     return res.redirect(`${frontendUrl}/aec-projects`);
   } catch (error) {
-    console.error("Error in GetThreeLegged:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Failed to get APS three-legged token", data: null, error: "TokenRetrievalFailed" });
+    error.code = error.code || "TokenRetrievalFailed";
+    return next(error);
   }
 };
 
-const GetToken = async (req, res) => {
+const GetToken = async (req, res, next) => {
   try {
     const token = await GetAPSToken();
 
     if (!token) {
-      return res.status(500).json({ success: false, message: "Failed to retrieve APS token", data: null, error: "TokenRetrievalFailed" });
+      const error = new Error("Failed to retrieve APS token");
+      error.status = 500;
+      error.code = "TokenRetrievalFailed";
+      return next(error);
     }
 
     res.status(200).json({
@@ -68,16 +75,12 @@ const GetToken = async (req, res) => {
       error: null,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Token error",
-      data: null,
-      error: error.message,
-    });
+    error.code = error.code || "TokenError";
+    return next(error);
   }
 };
 
-const PostLogout = async (req, res) => {
+const PostLogout = async (req, res, next) => {
   try {
     res.clearCookie("access_token", {
       httpOnly: true,
@@ -87,12 +90,8 @@ const PostLogout = async (req, res) => {
     });
     res.status(200).json({ success: true, message: "Logged out", data: null, error: null });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Error logging out",
-      data: null,
-      error: error.message,
-    });
+    error.code = error.code || "LogoutError";
+    return next(error);
   }
 };
 
