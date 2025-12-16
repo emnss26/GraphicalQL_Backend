@@ -1,6 +1,7 @@
 async function ensureTables(knex) {
   // user_plans
-  if (!(await knex.schema.hasTable("user_plans"))) {
+  const hasUserPlans = await knex.schema.hasTable("user_plans");
+  if (!hasUserPlans) {
     await knex.schema.createTable("user_plans", (t) => {
       t.increments("id").primary();
       t.string("project_id").notNullable().index();
@@ -17,14 +18,32 @@ async function ensureTables(knex) {
       t.string("current_revision").defaultTo("");
       t.date("current_revision_date");
       t.string("status").defaultTo("");
+      t.integer("has_approval_flow").notNullable().defaultTo(0);
+      t.string("revision_status").defaultTo("");
 
       t.timestamp("created_at").defaultTo(knex.fn.now());
       t.timestamp("updated_at").defaultTo(knex.fn.now());
     });
+  } else {
+    const columns = await knex.raw("PRAGMA table_info('user_plans')");
+    const columnNames = columns[0].map((col) => col.name);
+
+    if (!columnNames.includes("has_approval_flow")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.integer("has_approval_flow").notNullable().defaultTo(0);
+      });
+    }
+
+    if (!columnNames.includes("revision_status")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.string("revision_status").defaultTo("");
+      });
+    }
   }
 
-  // model_selection (selección de modelos por proyecto)
-  if (!(await knex.schema.hasTable("model_selection"))) {
+  // model_selection
+  const hasModelSelection = await knex.schema.hasTable("model_selection");
+  if (!hasModelSelection) {
     await knex.schema.createTable("model_selection", (t) => {
       t.increments("id").primary();
       t.string("project_id").notNullable().index();
@@ -34,8 +53,9 @@ async function ensureTables(knex) {
     });
   }
 
-  // plan_folder_selection (un folder de publicación por proyecto)
-  if (!(await knex.schema.hasTable("plan_folder_selection"))) {
+  // plan_folder_selection
+  const hasPlanFolderSelection = await knex.schema.hasTable("plan_folder_selection");
+  if (!hasPlanFolderSelection) {
     await knex.schema.createTable("plan_folder_selection", (t) => {
       t.increments("id").primary();
       t.string("project_id").notNullable().unique();
