@@ -1,4 +1,3 @@
-const axios = require("axios");
 const { fetchFolderTree } = require("../../../utils/aec_utils/aec.folderTree");
 
 const GetAECProjectFolders = async (req, res) => {
