@@ -14,6 +14,8 @@ const GetAECModels = async (req, res, next) => {
   try {
     const models = await fetchModels(token, projectId);
 
+    //console.log("Models fetched for project:", models);
+
     return res.status(200).json({
       success: true,
       message: "Models retrieved successfully",

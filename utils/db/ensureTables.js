@@ -25,8 +25,8 @@ async function ensureTables(knex) {
       t.timestamp("updated_at").defaultTo(knex.fn.now());
     });
   } else {
-    const columns = await knex.raw("PRAGMA table_info('user_plans')");
-    const columnNames = columns[0].map((col) => col.name);
+    const columnInfo = await knex("user_plans").columnInfo();
+    const columnNames = Object.keys(columnInfo);
 
     if (!columnNames.includes("has_approval_flow")) {
       await knex.schema.alterTable("user_plans", (t) => {

@@ -107,7 +107,14 @@ const listPlans = async (req, res, next) => {
     const rows = await knex("user_plans")
       .where({ project_id: req.params.projectId })
       .orderBy("id", "asc");
-    res.json({ success: true, message: "Planes listados", data: { plans: rows }, error: null });
+
+    // Siempre responde con data: { plans: [...] }
+    res.json({
+      success: true,
+      message: "Planes listados",
+      data: { plans: Array.isArray(rows) ? rows : [] },
+      error: null,
+    });
   } catch (e) {
     e.code = e.code || "PlanListError";
     return next(e);

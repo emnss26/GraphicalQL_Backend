@@ -37,8 +37,11 @@ async function fetchModels(token, projectId) {
         variables: { projectId },
       },
     });
+    console.log("Models fetched:", data?.data?.elementGroupsByProject?.results);
 
     return data?.data?.elementGroupsByProject?.results || [];
+
+
   } catch (error) {
     console.error("Error fetching AEC models:", error.response?.data || error.message);
     throw error;
