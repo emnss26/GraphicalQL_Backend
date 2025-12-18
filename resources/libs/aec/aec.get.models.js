@@ -37,7 +37,7 @@ async function fetchModels(token, projectId) {
         variables: { projectId },
       },
     });
-    console.log("Models fetched:", data?.data?.elementGroupsByProject?.results);
+    //console.log("Models fetched:", data?.data?.elementGroupsByProject?.results);
 
     return data?.data?.elementGroupsByProject?.results || [];
 

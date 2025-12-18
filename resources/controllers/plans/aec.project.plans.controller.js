@@ -404,6 +404,9 @@ const matchPlans = async (req, res, next) => {
       if (itemId && lead) itemIdByLeadingNumber.set(keyifyNumber(lead), itemId);
     }
 
+    //console.log ("Docs processed:", { totalFiles: files})
+
+
     // Helper: versiones de un item (fallback)
     const fetchItemVersions = async (itemId) => {
       try {
@@ -479,6 +482,11 @@ const matchPlans = async (req, res, next) => {
       let tipVersionId = null;
       let itemId = null;
       let docsMatchedBy = null;
+      let allVersionIds = null;
+      if (itemId) {
+        const versions = await fetchItemVersions(itemId);
+        allVersionIds = versions.map(v => v.id);
+      }
 
       if (!v1 && kNum && v1ByLeadingNumber.has(kNum)) { v1 = v1ByLeadingNumber.get(kNum); docsMatchedBy = "file-leading-number"; }
       if (!v1 && kNum_fromNameField && v1ByLeadingNumber.has(kNum_fromNameField)) { v1 = v1ByLeadingNumber.get(kNum_fromNameField); docsMatchedBy = "file-leading-number (from-name-field)"; }
@@ -547,8 +555,20 @@ const matchPlans = async (req, res, next) => {
         sheetMatchedBy = "sheet-number (from-name-field)";
       }
 
+      const matchedSheet = kNum && currentSheetsByNum.has(kNum)
+      ? currentSheetsByNum.get(kNum)
+      : kNum_fromNameField && currentSheetsByNum.has(kNum_fromNameField)
+      ? currentSheetsByNum.get(kNum_fromNameField)
+      : null;
+
       // --- Patch DB
       const patch = {};
+      let lastVersionDate = null;
+      let lastVersionNumber = null;
+      let lastVersionReviewState = null;
+      let firstReviewVersion = null;
+      let latestReviewVersion = null;
+
       if (hit) {
         if (hit.currentRevision !== undefined) patch.current_revision = hit.currentRevision;
         if (hit.currentRevisionDate) patch.current_revision_date = hit.currentRevisionDate;
@@ -559,6 +579,130 @@ const matchPlans = async (req, res, next) => {
       if (canWriteApproval) patch.has_approval_flow = hasApprovalFlow ? 1 : 0;
       if (canWriteStatus && approval?.status) patch.status = approval.status;
       if (canWriteActualReview && approval?.updatedAt) patch.actual_review_date = normDate(approval.updatedAt);
+
+      if (itemId) {
+        const versions = await fetchItemVersions(itemId);
+        const ordered = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
+        const latest = ordered[0];
+        if (latest) {
+          lastVersionDate = latest.attributes?.lastModifiedTime || latest.attributes?.createTime || null;
+          lastVersionNumber = latest.attributes?.versionNumber || null;
+        }
+      }
+      
+      if (itemId) {
+        const versions = await fetchItemVersions(itemId);
+        const ordered = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
+        const latest = ordered[0];
+        if (latest) {
+          const ext = latest?.attributes?.extension?.data || {};
+          lastVersionDate = latest.attributes?.lastModifiedTime || latest.attributes?.createTime || null;
+          lastVersionNumber = latest.attributes?.versionNumber || null;
+          lastVersionReviewState = ext.reviewState || ext.review_state || null;
+        }
+      }
+
+      if (itemId) {
+        const versions = await fetchItemVersions(itemId);
+
+        const ascending = [...versions].sort(
+          (A, B) => (A?.attributes?.versionNumber || 0) - (B?.attributes?.versionNumber || 0)
+        );
+
+        for (const v of ascending) {
+          const vId = v?.id;
+          if (!vId) continue;
+
+          try {
+            const results = await fetchVersionApprovalStatuses(token, altProjectId, vId);
+            if (Array.isArray(results) && results.length > 0) {
+              const last = results[results.length - 1]; // TOMAR EL ESTADO MÁS RECIENTE DENTRO DE ESA VERSIÓN
+              const statusValue = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
+              const reviewId = last?.review?.id || null;
+
+              let stamp = null;
+              if (reviewId) {
+                const rev = await fetchReviewById(token, accProjectGuid, reviewId);
+                stamp = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
+              }
+
+              firstReviewVersion = {
+                versionId: vId,
+                firstReviewStatus: statusValue,
+                reviewId,
+                firstReviewDate: stamp,
+              };
+              break;
+            }
+          } catch (e) {
+            if ((e?.response?.status || 0) !== 404) {
+              console.warn("approval-statuses failed", vId, e?.message || e);
+            }
+          }
+        }
+      }
+
+      if (itemId) {
+        const versions = await fetchItemVersions(itemId);
+        const ascending = [...versions].sort(
+          (A, B) => (A?.attributes?.versionNumber || 0) - (B?.attributes?.versionNumber || 0)
+        );
+
+        for (const v of ascending) {
+          const vId = v?.id;
+          if (!vId) continue;
+
+          try {
+            const results = await fetchVersionApprovalStatuses(token, altProjectId, vId);
+            if (Array.isArray(results) && results.length > 0) {
+              const first = results[0]; // primer estado del flujo
+              const last = results[results[0]]; // último estado del flujo
+
+              const firstStatus = mapApprovalStatus(first?.approvalStatus?.value, first?.approvalStatus?.label);
+              const lastStatus = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
+
+              const reviewIdFirst = first?.review?.id || null;
+              const reviewIdLast = last?.review?.id || null;
+
+              let stampFirst = null;
+              let stampLast = null;
+
+              if (reviewIdFirst) {
+                const rev = await fetchReviewById(token, accProjectGuid, reviewIdFirst);
+                stampFirst = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
+              }
+
+              if (reviewIdLast && reviewIdLast !== reviewIdFirst) {
+                const rev = await fetchReviewById(token, accProjectGuid, reviewIdLast);
+                stampLast = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
+              } else {
+                stampLast = stampFirst;
+              }
+
+              const newFirst = {
+                versionId: vId,
+                status: firstStatus,
+                reviewId: reviewIdFirst,
+                reviewDate: stampFirst,
+              };
+
+              const newLast = {
+                versionId: vId,
+                status: lastStatus,
+                reviewId: reviewIdLast,
+                reviewDate: stampLast,
+              };
+
+              if (!firstReviewVersion) firstReviewVersion = newFirst;
+              latestReviewVersion = newLast;
+            }
+          } catch (e) {
+            if ((e?.response?.status || 0) !== 404) {
+              console.warn("approval-statuses failed", vId, e?.message || e);
+            }
+          }
+        }
+      }
 
       details.push({
         id: p.id,
@@ -575,6 +719,10 @@ const matchPlans = async (req, res, next) => {
           matchedBy: docsMatchedBy || null,
           tipVersionId: tipVersionId || null,
           itemId: itemId || null,
+          lastVersion: {
+            versionNumber: lastVersionNumber || null,
+            lastModified: lastVersionDate || null,
+          },
         },
         approvals: {
           hasApprovalFlow,
@@ -584,8 +732,26 @@ const matchPlans = async (req, res, next) => {
         },
         issue: {
           matchedBy: sheetMatchedBy,
+          title: matchedSheet?.title || null,
+          createdBy: matchedSheet?.createdByName || null,
           createdAt: issueRealDate || null,
+          updatedBy: matchedSheet?.updatedByName || null,
+          updatedAt: matchedSheet?.updatedAt || null,
+          versionSet: {
+            id: matchedSheet?.versionSet?.id || null,
+            name: matchedSheet?.versionSet?.name || null,
+            issuanceDate: matchedSheet?.versionSet?.issuanceDate || null
+          },
         },
+        allVersionIds,
+        revisionFlow: {
+          firstReview: firstReviewVersion,
+          latestReview: latestReviewVersion,
+          isUpdated: (
+            firstReviewVersion?.status !== latestReviewVersion?.status ||
+            firstReviewVersion?.reviewDate !== latestReviewVersion?.reviewDate
+          )
+        }
       });
 
       if (Object.keys(patch).length) {
@@ -611,6 +777,8 @@ const matchPlans = async (req, res, next) => {
         matchedPlans: patches.length,
         totalPlans: plans.length,
         details,
+        files,
+
       },
       error: null,
     });
