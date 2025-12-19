@@ -21,6 +21,13 @@ async function ensureTables(knex) {
       t.integer("has_approval_flow").notNullable().defaultTo(0);
       t.string("revision_status").defaultTo("");
 
+      t.date("docs_last_modified");
+      t.integer("docs_version_number");
+      t.date("latest_review_date");
+      t.string("latest_review_status");
+      t.date("sheet_updated_at");
+      t.string("sheet_version_set");
+
       t.timestamp("created_at").defaultTo(knex.fn.now());
       t.timestamp("updated_at").defaultTo(knex.fn.now());
     });
@@ -37,6 +44,42 @@ async function ensureTables(knex) {
     if (!columnNames.includes("revision_status")) {
       await knex.schema.alterTable("user_plans", (t) => {
         t.string("revision_status").defaultTo("");
+      });
+    }
+
+    if (!columnNames.includes("docs_last_modified")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.date("docs_last_modified");
+      });
+    }
+
+    if (!columnNames.includes("docs_version_number")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.integer("docs_version_number");
+      });
+    }
+
+    if (!columnNames.includes("latest_review_date")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.date("latest_review_date");
+      });
+    }
+
+    if (!columnNames.includes("latest_review_status")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.string("latest_review_status");
+      });
+    }
+
+    if (!columnNames.includes("sheet_updated_at")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.date("sheet_updated_at");
+      });
+    }
+
+    if (!columnNames.includes("sheet_version_set")) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.string("sheet_version_set");
       });
     }
   }

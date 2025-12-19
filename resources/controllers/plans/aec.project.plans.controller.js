@@ -218,6 +218,8 @@ const updatePlan = async (req, res, next) => {
       projectId: req.params.projectId,
       id: Number(req.params.id),
     };
+    
+    // Agregamos las nuevas columnas a la lista permitida
     const allowed = {
       name: (v) => String(v || "").trim(),
       number: (v) => {
@@ -233,10 +235,21 @@ const updatePlan = async (req, res, next) => {
       currentRevision: (v) => String(v || "").trim(),
       currentRevisionDate: normDate,
       status: (v) => String(v || "").trim(),
+      
+      // === NUEVOS CAMPOS ===
+      docsVersion: (v) => (v === "" || v === null ? null : Number(v)),
+      docsVersionDate: normDate,
+      lastReviewDate: normDate,
+      lastReviewStatus: (v) => String(v || "").trim(),
+      issueUpdatedAt: normDate,
+      issueVersionSetName: (v) => String(v || "").trim(),
+      hasApprovalFlow: (v) => (v === true || v === "true" || v === 1 ? 1 : 0),
     };
+
     const patch = {};
     for (const k of Object.keys(req.body || {})) {
       if (k in allowed) {
+        // Mapeo de nombreFrontend -> nombre_db
         const dbKey = k
           .replace("plannedGenDate", "planned_gen_date")
           .replace("actualGenDate", "actual_gen_date")
@@ -245,10 +258,21 @@ const updatePlan = async (req, res, next) => {
           .replace("plannedIssueDate", "planned_issue_date")
           .replace("actualIssueDate", "actual_issue_date")
           .replace("currentRevisionDate", "current_revision_date")
-          .replace("currentRevision", "current_revision");
+          .replace("currentRevision", "current_revision")
+          
+          // === MAPEO DE NUEVOS CAMPOS ===
+          .replace("docsVersionDate", "docs_last_modified")
+          .replace("docsVersion", "docs_version_number")
+          .replace("lastReviewDate", "latest_review_date")
+          .replace("lastReviewStatus", "latest_review_status")
+          .replace("issueUpdatedAt", "sheet_updated_at")
+          .replace("issueVersionSetName", "sheet_version_set")
+          .replace("hasApprovalFlow", "has_approval_flow");
+
         patch[dbKey] = allowed[k](req.body[k]);
       }
     }
+    
     if (!Object.keys(patch).length) {
       const error = new Error("Nada que actualizar");
       error.status = 400;
@@ -293,6 +317,7 @@ const deletePlan = async (req, res, next) => {
 };
 
 /* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
+/* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
 const matchPlans = async (req, res, next) => {
   try {
     const { fetchReviewById } = require("../../libs/acc/acc.get.review.by.id.js");
@@ -300,23 +325,20 @@ const matchPlans = async (req, res, next) => {
 
     const projectId = req.params.projectId;
     const token = req.cookies["access_token"];
-    const altProjectId = req.headers["x-alt-project-id"];  // 'b.xxx' o URN
+    const altProjectId = req.headers["x-alt-project-id"];
     const selectedFolderId = req.headers["selected-folder-id"];
 
     if (!token) {
       const error = new Error("Unauthorized");
       error.status = 401;
-      error.code = "Unauthorized";
       return next(error);
     }
     if (!altProjectId || !selectedFolderId) {
-      const error = new Error("Debes enviar headers: x-alt-project-id y selected-folder-id (folder de publicación).");
+      const error = new Error("Faltan headers de selección.");
       error.status = 400;
-      error.code = "MissingFolderSelection";
       return next(error);
     }
 
-    // DM -> b.<guid>, Reviews -> GUID “pelón”
     const toBProject = (pid) => {
       const s = String(pid || "");
       if (s.startsWith("b.")) return s;
@@ -331,35 +353,26 @@ const matchPlans = async (req, res, next) => {
     const bProjectId = toBProject(altProjectId);
     const accProjectGuid = toGuid(altProjectId);
 
-    // columnas opcionales
-    const [canWriteApproval, canWriteActualReview, canWriteStatus] = await Promise.all([
-      knex.schema.hasColumn("user_plans", "has_approval_flow").catch(() => false),
-      knex.schema.hasColumn("user_plans", "actual_review_date").catch(() => false),
-      knex.schema.hasColumn("user_plans", "status").catch(() => false),
-    ]);
-
-    // 1) Planes de usuario
+    await ensureTables(knex);
+    
+    // Obtener planes
     const plans = await knex("user_plans").where({ project_id: projectId });
 
-    // 2) Modelos seleccionados
+    // Obtener modelos seleccionados
     const selectedRows = await knex("model_selection").where({ project_id: projectId }).select("model_id");
     const modelIds = selectedRows.map((r) => r.model_id);
-    if (!modelIds.length) {
-      const error = new Error("No models selected for this project");
-      error.status = 400;
-      error.code = "NoModelsSelected";
-      return next(error);
-    }
-
-    // 3) Sheets por modelo (AEC GraphQL)
+    
+    // Obtener Sheets de Modelos (AEC)
     const allSheets = [];
-    for (const modelId of modelIds) {
-      try {
-        const ss = await fetchSheets(token, modelId, "property.name.category==Sheets");
-        for (const s of ss) allSheets.push(extractSheetFields(s));
-      } catch (e) {
-        console.warn("fetchSheets failed", modelId, e?.message || e);
-      }
+    if (modelIds.length) {
+        for (const modelId of modelIds) {
+          try {
+            const ss = await fetchSheets(token, modelId, "property.name.category==Sheets");
+            for (const s of ss) allSheets.push(extractSheetFields(s));
+          } catch (e) {
+            console.warn("fetchSheets failed", modelId);
+          }
+        }
     }
     const byNumber = new Map();
     const byName = new Map();
@@ -368,69 +381,49 @@ const matchPlans = async (req, res, next) => {
       if (s.name) byName.set(keyifyName(s.name), s);
     }
 
-    // 4) Contenidos del folder (ACC Docs)
+    // Obtener Docs (Files)
     const files = await fetchFolderContents(token, altProjectId, selectedFolderId);
-
-    const v1ByFileBase = new Map();
     const v1ByLeadingNumber = new Map();
-    const tipVersionByFileBase = new Map();
+    const v1ByFileBase = new Map();
     const tipVersionByLeadingNumber = new Map();
-    const itemIdByFileBase = new Map();
+    const tipVersionByFileBase = new Map();
     const itemIdByLeadingNumber = new Map();
+    const itemIdByFileBase = new Map();
 
     for (const f of files || []) {
       if (f?.type !== "items") continue;
-
-      const displayName =
-        f?.attributes?.displayName ||
-        f?.attributes?.name ||
-        f?.attributes?.fileName ||
-        "";
-
-      const v1Date = getV1DateFromInclVersions(f);     // ~createTime del item
+      const displayName = f?.attributes?.displayName || f?.attributes?.name || "";
+      const v1Date = getV1DateFromInclVersions(f);
       const tipVersionId = f?.relationships?.tip?.data?.id || null;
       const itemId = f?.id || null;
-
       const base = normalizeFileBase(displayName);
       const lead = getLeadingSheetNumber(displayName);
 
-      if (v1Date && base) v1ByFileBase.set(keyifyName(base), v1Date);
       if (v1Date && lead) v1ByLeadingNumber.set(keyifyNumber(lead), v1Date);
+      if (v1Date && base) v1ByFileBase.set(keyifyName(base), v1Date);
 
-      if (tipVersionId && base) tipVersionByFileBase.set(keyifyName(base), tipVersionId);
       if (tipVersionId && lead) tipVersionByLeadingNumber.set(keyifyNumber(lead), tipVersionId);
+      if (tipVersionId && base) tipVersionByFileBase.set(keyifyName(base), tipVersionId);
 
-      if (itemId && base) itemIdByFileBase.set(keyifyName(base), itemId);
       if (itemId && lead) itemIdByLeadingNumber.set(keyifyNumber(lead), itemId);
+      if (itemId && base) itemIdByFileBase.set(keyifyName(base), itemId);
     }
 
-    //console.log ("Docs processed:", { totalFiles: files})
-
-
-    // Helper: versiones de un item (fallback)
+    // Helper versiones
     const fetchItemVersions = async (itemId) => {
-      try {
-        const url = `https://developer.api.autodesk.com/data/v1/projects/${encodeURIComponent(bProjectId)}/items/${encodeURIComponent(itemId)}/versions`;
-        const { data } = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
-        return Array.isArray(data?.data) ? data.data : [];
-      } catch (e) {
-        console.warn("fetchItemVersions failed", itemId, e?.message || e);
-        return [];
-      }
+        try {
+          const url = `https://developer.api.autodesk.com/data/v1/projects/${encodeURIComponent(bProjectId)}/items/${encodeURIComponent(itemId)}/versions`;
+          const { data } = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+          return Array.isArray(data?.data) ? data.data : [];
+        } catch (e) { return []; }
     };
 
-    // === NUEVO: traer Sheets de ACC Reviews para “Emisión real”
+    // Obtener Project Sheets (ACC Reviews - Emisión real)
     let projectSheets = [];
     try {
       projectSheets = await fetchProjectSheets(token, accProjectGuid, 200);
-    } catch (err) {
-      console.warn(
-        "fetchProjectSheets failed",
-        err?.response?.status || "",
-        err?.message || err
-      );
-      projectSheets = [];
-    }
+    } catch (err) { projectSheets = []; }
+
     const currentSheetsByNum = new Map();
     for (const sh of projectSheets) {
       if (!sh?.isCurrent) continue;
@@ -442,22 +435,13 @@ const matchPlans = async (req, res, next) => {
       }
     }
 
-    //console.log ("Sheets", projectSheets)
-
-    // Mapeo de status
+    // Mapeo status
     const mapApprovalStatus = (value, label) => {
-      const v = String(value || "").toUpperCase().trim();
-      const l = String(label || "").toLowerCase();
-      if (["APPROVED", "REJECTED", "IN_REVIEW", "NOT_IN_REVIEW"].includes(v)) return v;
-      if (v === "A") return "APPROVED";
-      if (v === "R") return "REJECTED";
-      if (v === "I") return "IN_REVIEW";
-      if (v === "NIR") return "NOT_IN_REVIEW";
-      if (v === "W") return "APPROVED"; // tu payload
-      if (l.includes("aprob")) return "APPROVED";
-      if (l.includes("rechaz")) return "REJECTED";
-      if (l.includes("review") || l.includes("revisi")) return "IN_REVIEW";
-      return v || "IN_REVIEW";
+        const v = String(value || "").toUpperCase().trim();
+        if (["APPROVED", "REJECTED", "IN_REVIEW", "NOT_IN_REVIEW"].includes(v)) return v;
+        if (v === "A" || v === "W" || String(label).toLowerCase().includes("aprob")) return "APPROVED";
+        if (v === "R" || String(label).toLowerCase().includes("rechaz")) return "REJECTED";
+        return "IN_REVIEW";
     };
 
     const patches = [];
@@ -466,298 +450,159 @@ const matchPlans = async (req, res, next) => {
     for (const p of plans) {
       const kNum = keyifyNumber(p.number);
       const kName = keyifyName(p.name);
-      const kNum_fromNameField = keyifyNumber(p.name);
-      const kName_fromNumberField = keyifyName(p.number);
-
-      // --- MATCH modelos
+      
+      // 1. Match Models
       let hit = null;
-      let matchedBy = null;
-      if (kNum && byNumber.has(kNum)) { hit = byNumber.get(kNum); matchedBy = "model-number"; }
-      else if (kName && byName.has(kName)) { hit = byName.get(kName); matchedBy = "model-name"; }
-      else if (kNum_fromNameField && byNumber.has(kNum_fromNameField)) { hit = byNumber.get(kNum_fromNameField); matchedBy = "model-number (from-name-field)"; }
-      else if (kName_fromNumberField && byName.has(kName_fromNumberField)) { hit = byName.get(kName_fromNumberField); matchedBy = "model-name (from-number-field)"; }
+      if (kNum && byNumber.has(kNum)) hit = byNumber.get(kNum);
+      else if (kName && byName.has(kName)) hit = byName.get(kName);
 
-      // --- MATCH Docs
-      let v1 = null;
-      let tipVersionId = null;
-      let itemId = null;
-      let docsMatchedBy = null;
-      let allVersionIds = null;
-      if (itemId) {
-        const versions = await fetchItemVersions(itemId);
-        allVersionIds = versions.map(v => v.id);
-      }
+      // 2. Match Docs (IDs)
+      let v1 = null, tipVersionId = null, itemId = null;
+      if (kNum && v1ByLeadingNumber.has(kNum)) v1 = v1ByLeadingNumber.get(kNum);
+      else if (kName && v1ByFileBase.has(kName)) v1 = v1ByFileBase.get(kName);
 
-      if (!v1 && kNum && v1ByLeadingNumber.has(kNum)) { v1 = v1ByLeadingNumber.get(kNum); docsMatchedBy = "file-leading-number"; }
-      if (!v1 && kNum_fromNameField && v1ByLeadingNumber.has(kNum_fromNameField)) { v1 = v1ByLeadingNumber.get(kNum_fromNameField); docsMatchedBy = "file-leading-number (from-name-field)"; }
-      if (!v1 && kName && v1ByFileBase.has(kName)) { v1 = v1ByFileBase.get(kName); docsMatchedBy = "file-base-name"; }
-      if (!v1 && kName_fromNumberField && v1ByFileBase.has(kName_fromNumberField)) { v1 = v1ByFileBase.get(kName_fromNumberField); docsMatchedBy = "file-base-name (from-number-field)"; }
+      if (kNum && tipVersionByLeadingNumber.has(kNum)) tipVersionId = tipVersionByLeadingNumber.get(kNum);
+      else if (kName && tipVersionByFileBase.has(kName)) tipVersionId = tipVersionByFileBase.get(kName);
 
-      if (!tipVersionId && kNum && tipVersionByLeadingNumber.has(kNum)) tipVersionId = tipVersionByLeadingNumber.get(kNum);
-      if (!tipVersionId && kNum_fromNameField && tipVersionByLeadingNumber.has(kNum_fromNameField)) tipVersionId = tipVersionByLeadingNumber.get(kNum_fromNameField);
-      if (!tipVersionId && kName && tipVersionByFileBase.has(kName)) tipVersionId = tipVersionByFileBase.get(kName);
-      if (!tipVersionId && kName_fromNumberField && tipVersionByFileBase.has(kName_fromNumberField)) tipVersionId = tipVersionByFileBase.get(kName_fromNumberField);
+      if (kNum && itemIdByLeadingNumber.has(kNum)) itemId = itemIdByLeadingNumber.get(kNum);
+      else if (kName && itemIdByFileBase.has(kName)) itemId = itemIdByFileBase.get(kName);
 
-      if (!itemId && kNum && itemIdByLeadingNumber.has(kNum)) itemId = itemIdByLeadingNumber.get(kNum);
-      if (!itemId && kNum_fromNameField && itemIdByLeadingNumber.has(kNum_fromNameField)) itemId = itemIdByLeadingNumber.get(kNum_fromNameField);
-      if (!itemId && kName && itemIdByFileBase.has(kName)) itemId = itemIdByFileBase.get(kName);
-      if (!itemId && kName_fromNumberField && itemIdByFileBase.has(kName_fromNumberField)) itemId = itemIdByFileBase.get(kName_fromNumberField);
+      // 3. Match Sheets (Emisión)
+      let matchedSheet = null;
+      if (kNum && currentSheetsByNum.has(kNum)) matchedSheet = currentSheetsByNum.get(kNum);
 
-      // --- Flujo de aprobación
-      let hasApprovalFlow = false;
-      let approval = null;
-
-      if (tipVersionId) {
-        try {
-          const results = await fetchVersionApprovalStatuses(token, altProjectId, tipVersionId);
-          if (Array.isArray(results) && results.length > 0) {
-            hasApprovalFlow = true;
-            const last = results[results.length - 1];
-            const statusValue = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
-            const reviewId = last?.review?.id || null;
-
-            let stamp = null;
-            if (reviewId) {
-              const rev = await fetchReviewById(token, accProjectGuid, reviewId);
-              stamp = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
-            }
-            approval = { status: statusValue, reviewId, updatedAt: stamp };
-          }
-        } catch (e) {
-          if ((e?.response?.status || 0) !== 404) console.warn("approval-statuses failed", tipVersionId, e?.message || e);
-        }
-      }
-
-      // Fallback a reviewState en versiones del item
-      if (!hasApprovalFlow && itemId) {
-        const versions = await fetchItemVersions(itemId);
-        const ordered = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
-        for (const v of ordered) {
-          const ext = v?.attributes?.extension?.data || {};
-          const state = ext.reviewState || ext.review_state || null;
-          if (state && state !== "NOT_IN_REVIEW") {
-            hasApprovalFlow = true;
-            const t = v?.attributes?.lastModifiedTime || v?.attributes?.createTime || null;
-            approval = { status: state, reviewId: null, updatedAt: t };
-            break;
-          }
-        }
-      }
-
-      // --- Emisión a construcción (real) desde Sheets (ACC Reviews)
-      let issueRealDate = null;
-      let sheetMatchedBy = null;
-      if (kNum && currentSheetsByNum.has(kNum)) {
-        issueRealDate = currentSheetsByNum.get(kNum)?.createdAt || null;
-        sheetMatchedBy = "sheet-number";
-      } else if (kNum_fromNameField && currentSheetsByNum.has(kNum_fromNameField)) {
-        issueRealDate = currentSheetsByNum.get(kNum_fromNameField)?.createdAt || null;
-        sheetMatchedBy = "sheet-number (from-name-field)";
-      }
-
-      const matchedSheet = kNum && currentSheetsByNum.has(kNum)
-      ? currentSheetsByNum.get(kNum)
-      : kNum_fromNameField && currentSheetsByNum.has(kNum_fromNameField)
-      ? currentSheetsByNum.get(kNum_fromNameField)
-      : null;
-
-      // --- Patch DB
-      const patch = {};
+      // --- OBTENCIÓN DE DATOS EXTERNOS ---
       let lastVersionDate = null;
       let lastVersionNumber = null;
-      let lastVersionReviewState = null;
+      let hasApprovalFlow = false;
+      let approval = null;
       let firstReviewVersion = null;
       let latestReviewVersion = null;
 
+      let versions = [];
+      if (itemId) {
+        versions = await fetchItemVersions(itemId);
+        // Ordenar desc para "Ultima versión"
+        const desc = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
+        const latest = desc[0];
+        if (latest) {
+             lastVersionDate = latest.attributes?.lastModifiedTime || latest.attributes?.createTime || null;
+             lastVersionNumber = latest.attributes?.versionNumber || null;
+        }
+
+        // Approval Flow desde Tip
+        if (tipVersionId) {
+             try {
+                const results = await fetchVersionApprovalStatuses(token, altProjectId, tipVersionId);
+                if (results?.length > 0) {
+                    hasApprovalFlow = true;
+                    const last = results[results.length - 1];
+                    const st = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
+                    approval = { status: st };
+                }
+             } catch {}
+        }
+
+        // Historial de revisiones (First & Latest) iterando ASCENDENTE
+        const asc = [...versions].sort((A, B) => (A?.attributes?.versionNumber || 0) - (B?.attributes?.versionNumber || 0));
+        
+        for (const v of asc) {
+            const vId = v?.id;
+            try {
+                const results = await fetchVersionApprovalStatuses(token, altProjectId, vId);
+                if (results?.length > 0) {
+                    const first = results[0];
+                    const last = results[results.length - 1];
+                    
+                    // Buscar fechas de review
+                    let dateFirst = null; 
+                    let dateLast = null;
+                    if (first?.review?.id) {
+                        const r = await fetchReviewById(token, accProjectGuid, first.review.id);
+                        dateFirst = r?.createdAt || r?.finishedAt || null;
+                    }
+                    if (last?.review?.id) {
+                         if (last.review.id === first.review.id && dateFirst) dateLast = dateFirst;
+                         else {
+                            const r = await fetchReviewById(token, accProjectGuid, last.review.id);
+                            dateLast = r?.createdAt || r?.finishedAt || null;
+                         }
+                    }
+
+                    const objFirst = { 
+                        reviewDate: dateFirst, 
+                        status: mapApprovalStatus(first?.approvalStatus?.value) 
+                    };
+                    const objLast = { 
+                        reviewDate: dateLast, 
+                        status: mapApprovalStatus(last?.approvalStatus?.value) 
+                    };
+
+                    if (!firstReviewVersion) firstReviewVersion = objFirst;
+                    latestReviewVersion = objLast;
+                }
+            } catch {}
+        }
+      }
+
+      // --- CREAR PATCH (Mapeo solicitado) ---
+      const patch = {};
+
+      // Columna: Revisión Actual & Fecha Revisión Actual (Desde Model)
       if (hit) {
         if (hit.currentRevision !== undefined) patch.current_revision = hit.currentRevision;
         if (hit.currentRevisionDate) patch.current_revision_date = hit.currentRevisionDate;
       }
+
+      // Columna: Fecha generación Docs (v1Date)
       if (v1) patch.actual_gen_date = v1;
-      if (issueRealDate) patch.actual_issue_date = normDate(issueRealDate);
 
-      if (canWriteApproval) patch.has_approval_flow = hasApprovalFlow ? 1 : 0;
-      if (canWriteStatus && approval?.status) patch.status = approval.status;
-      if (canWriteActualReview && approval?.updatedAt) patch.actual_review_date = normDate(approval.updatedAt);
+      // Columna: Versión en Docs & Fecha última versión Docs
+      if (lastVersionNumber != null) patch.docs_version_number = lastVersionNumber;
+      if (lastVersionDate) patch.docs_last_modified = normDate(lastVersionDate);
 
-      if (itemId) {
-        const versions = await fetchItemVersions(itemId);
-        const ordered = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
-        const latest = ordered[0];
-        if (latest) {
-          lastVersionDate = latest.attributes?.lastModifiedTime || latest.attributes?.createTime || null;
-          lastVersionNumber = latest.attributes?.versionNumber || null;
-        }
-      }
-      
-      if (itemId) {
-        const versions = await fetchItemVersions(itemId);
-        const ordered = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
-        const latest = ordered[0];
-        if (latest) {
-          const ext = latest?.attributes?.extension?.data || {};
-          lastVersionDate = latest.attributes?.lastModifiedTime || latest.attributes?.createTime || null;
-          lastVersionNumber = latest.attributes?.versionNumber || null;
-          lastVersionReviewState = ext.reviewState || ext.review_state || null;
-        }
+      // Columna: Aprobación Docs (Booleano)
+      patch.has_approval_flow = hasApprovalFlow ? 1 : 0;
+
+      // Columna: Revisión técnica real (First Review Date)
+      if (firstReviewVersion?.reviewDate) {
+          patch.actual_review_date = normDate(firstReviewVersion.reviewDate);
       }
 
-      if (itemId) {
-        const versions = await fetchItemVersions(itemId);
-
-        const ascending = [...versions].sort(
-          (A, B) => (A?.attributes?.versionNumber || 0) - (B?.attributes?.versionNumber || 0)
-        );
-
-        for (const v of ascending) {
-          const vId = v?.id;
-          if (!vId) continue;
-
-          try {
-            const results = await fetchVersionApprovalStatuses(token, altProjectId, vId);
-            if (Array.isArray(results) && results.length > 0) {
-              const last = results[results.length - 1]; // TOMAR EL ESTADO MÁS RECIENTE DENTRO DE ESA VERSIÓN
-              const statusValue = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
-              const reviewId = last?.review?.id || null;
-
-              let stamp = null;
-              if (reviewId) {
-                const rev = await fetchReviewById(token, accProjectGuid, reviewId);
-                stamp = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
-              }
-
-              firstReviewVersion = {
-                versionId: vId,
-                firstReviewStatus: statusValue,
-                reviewId,
-                firstReviewDate: stamp,
-              };
-              break;
-            }
-          } catch (e) {
-            if ((e?.response?.status || 0) !== 404) {
-              console.warn("approval-statuses failed", vId, e?.message || e);
-            }
-          }
-        }
+      // Columna: Último flujo de revisión (Latest Review Date)
+      if (latestReviewVersion?.reviewDate) {
+          patch.latest_review_date = normDate(latestReviewVersion.reviewDate);
       }
 
-      if (itemId) {
-        const versions = await fetchItemVersions(itemId);
-        const ascending = [...versions].sort(
-          (A, B) => (A?.attributes?.versionNumber || 0) - (B?.attributes?.versionNumber || 0)
-        );
-
-        for (const v of ascending) {
-          const vId = v?.id;
-          if (!vId) continue;
-
-          try {
-            const results = await fetchVersionApprovalStatuses(token, altProjectId, vId);
-            if (Array.isArray(results) && results.length > 0) {
-              const first = results[0]; // primer estado del flujo
-              const last = results[results[0]]; // último estado del flujo
-
-              const firstStatus = mapApprovalStatus(first?.approvalStatus?.value, first?.approvalStatus?.label);
-              const lastStatus = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
-
-              const reviewIdFirst = first?.review?.id || null;
-              const reviewIdLast = last?.review?.id || null;
-
-              let stampFirst = null;
-              let stampLast = null;
-
-              if (reviewIdFirst) {
-                const rev = await fetchReviewById(token, accProjectGuid, reviewIdFirst);
-                stampFirst = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
-              }
-
-              if (reviewIdLast && reviewIdLast !== reviewIdFirst) {
-                const rev = await fetchReviewById(token, accProjectGuid, reviewIdLast);
-                stampLast = rev?.createdAt || rev?.finishedAt || rev?.updatedAt || null;
-              } else {
-                stampLast = stampFirst;
-              }
-
-              const newFirst = {
-                versionId: vId,
-                status: firstStatus,
-                reviewId: reviewIdFirst,
-                reviewDate: stampFirst,
-              };
-
-              const newLast = {
-                versionId: vId,
-                status: lastStatus,
-                reviewId: reviewIdLast,
-                reviewDate: stampLast,
-              };
-
-              if (!firstReviewVersion) firstReviewVersion = newFirst;
-              latestReviewVersion = newLast;
-            }
-          } catch (e) {
-            if ((e?.response?.status || 0) !== 404) {
-              console.warn("approval-statuses failed", vId, e?.message || e);
-            }
-          }
-        }
+      // Columna: Estatus último flujo (Latest Review Status)
+      if (latestReviewVersion?.status) {
+          patch.latest_review_status = latestReviewVersion.status;
       }
 
-      details.push({
-        id: p.id,
-        number: p.number,
-        name: p.name,
-        matchedBy,
-        model: hit ? {
-          number: hit.number, name: hit.name,
-          currentRevision: hit.currentRevision ?? null,
-          currentRevisionDate: hit.currentRevisionDate ?? null,
-        } : null,
-        docs: {
-          v1Date: v1 || null,
-          matchedBy: docsMatchedBy || null,
-          tipVersionId: tipVersionId || null,
-          itemId: itemId || null,
-          lastVersion: {
-            versionNumber: lastVersionNumber || null,
-            lastModified: lastVersionDate || null,
-          },
-        },
-        approvals: {
-          hasApprovalFlow,
-          status: approval?.status || null,
-          reviewId: approval?.reviewId || null,
-          createdAt: approval?.updatedAt || null,
-        },
-        issue: {
-          matchedBy: sheetMatchedBy,
-          title: matchedSheet?.title || null,
-          createdBy: matchedSheet?.createdByName || null,
-          createdAt: issueRealDate || null,
-          updatedBy: matchedSheet?.updatedByName || null,
-          updatedAt: matchedSheet?.updatedAt || null,
-          versionSet: {
-            id: matchedSheet?.versionSet?.id || null,
-            name: matchedSheet?.versionSet?.name || null,
-            issuanceDate: matchedSheet?.versionSet?.issuanceDate || null
-          },
-        },
-        allVersionIds,
-        revisionFlow: {
-          firstReview: firstReviewVersion,
-          latestReview: latestReviewVersion,
-          isUpdated: (
-            firstReviewVersion?.status !== latestReviewVersion?.status ||
-            firstReviewVersion?.reviewDate !== latestReviewVersion?.reviewDate
-          )
-        }
-      });
+      // Columna: Emisión construcción real (Issue CreatedAt)
+      if (matchedSheet?.createdAt) {
+          patch.actual_issue_date = normDate(matchedSheet.createdAt);
+      }
+
+      // Columna: Actualizado en Sheets (Issue UpdatedAt)
+      if (matchedSheet?.updatedAt) {
+          patch.sheet_updated_at = normDate(matchedSheet.updatedAt);
+      }
+
+      // Columna: Conjunto (Issue Version Set Name)
+      if (matchedSheet?.versionSet?.name) {
+          patch.sheet_version_set = matchedSheet.versionSet.name;
+      }
+
+      // NOTA: NO ACTUALIZAMOS 'status' AQUÍ PARA QUE EL FRONTEND MUESTRE LA BARRA DE PROGRESO
 
       if (Object.keys(patch).length) {
         patch.updated_at = knex.fn.now();
         patches.push({ id: p.id, patch });
       }
+
+      // Detalles para debug en frontend (opcional)
+      details.push({ id: p.id, patch }); 
     }
 
     if (patches.length) {
@@ -768,22 +613,13 @@ const matchPlans = async (req, res, next) => {
       });
     }
 
-    res.set("Cache-Control", "no-store");
-    return res.status(200).json({
-      success: true,
-      message:
-        "Se actualizaron current_revision/current_revision_date, actual_gen_date (V1), flujo de aprobación (Reviews) y emisión real (Sheets.createdAt).",
-      data: {
-        matchedPlans: patches.length,
-        totalPlans: plans.length,
-        details,
-        files,
-
-      },
-      error: null,
+    res.status(200).json({
+        success: true,
+        message: "Match completado.",
+        data: { matchedPlans: patches, details }
     });
+
   } catch (e) {
-    e.code = e.code || "MatchError";
     return next(e);
   }
 };
