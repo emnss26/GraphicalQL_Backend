@@ -127,6 +127,7 @@ const importPlans = async (req, res, next) => {
 
     const projectId = req.params.projectId;
     const { plans = [] } = req.body || {};
+    
     if (!Array.isArray(plans) || !plans.length) {
       const error = new Error("Payload vacío");
       error.status = 400;
@@ -134,23 +135,25 @@ const importPlans = async (req, res, next) => {
       return next(error);
     }
 
-    // --- Heurística opcional: si detectamos que vienen invertidos, los corregimos ---
-    const looksLikeNumber = (s) => /^[A-Z0-9_.-]+$/.test(String(s || "").trim());
+    // --- CORRECCIÓN 1: Regex permite minúsculas (a-z) para detectar extensiones como .pdf ---
+    const looksLikeNumber = (s) => /^[a-zA-Z0-9_.-]+$/.test(String(s || "").trim());
+    
     const normalizeRows = plans.map((p) => {
       let name = String(p.name || "").trim();
       let number = String(p.number || "").trim();
 
+      // Heurística para detectar columnas invertidas
       const nameIsNumber = looksLikeNumber(name) && !/\s/.test(name);
       const numberLooksLikeName = /\s/.test(number) || /[a-záéíóúñ]/i.test(number);
 
       if (nameIsNumber && numberLooksLikeName) {
-        // swap
-        const tmp = name;
-        name = number;
+        // SWAP: Corregimos la inversión automáticamente
+        const tmp = name; 
+        name = number; 
         number = tmp;
       }
       return {
-        name,
+        name, 
         number,
         plannedGenDate: p.plannedGenDate,
         plannedReviewDate: p.plannedReviewDate,
@@ -158,46 +161,48 @@ const importPlans = async (req, res, next) => {
       };
     });
 
-    for (const p of normalizeRows) {
-      const row = {
-        project_id: projectId,
-        name: String(p.name || "").trim(),
-        number:
-          p.number != null && String(p.number).trim() !== ""
-            ? String(p.number).trim()
-            : null,
-        planned_gen_date: normDate(p.plannedGenDate),
-        planned_review_date: normDate(p.plannedReviewDate),
-        planned_issue_date: normDate(p.plannedIssueDate),
-      };
+    // --- CORRECCIÓN 2: Transacción para rendimiento y evitar timeouts ---
+    await knex.transaction(async (trx) => {
+      for (const p of normalizeRows) {
+        const row = {
+          project_id: projectId,
+          name: String(p.name || "").trim(),
+          number: p.number != null && String(p.number).trim() !== "" ? String(p.number).trim() : null,
+          planned_gen_date: normDate(p.plannedGenDate),
+          planned_review_date: normDate(p.plannedReviewDate),
+          planned_issue_date: normDate(p.plannedIssueDate),
+        };
 
-      if (row.number) {
-        const existing = await knex("user_plans")
-          .where({ project_id: projectId, number: row.number })
-          .first();
-        if (existing) {
-          await knex("user_plans").where({ id: existing.id }).update({
-            name: row.name,
-            planned_gen_date: row.planned_gen_date,
-            planned_review_date: row.planned_review_date,
-            planned_issue_date: row.planned_issue_date,
-            updated_at: knex.fn.now(),
-          });
+        if (row.number) {
+          const existing = await trx("user_plans")
+            .where({ project_id: projectId, number: row.number })
+            .first();
+            
+          if (existing) {
+            await trx("user_plans").where({ id: existing.id }).update({
+              name: row.name,
+              planned_gen_date: row.planned_gen_date,
+              planned_review_date: row.planned_review_date,
+              planned_issue_date: row.planned_issue_date,
+              updated_at: knex.fn.now(),
+            });
+          } else {
+            await trx("user_plans").insert({
+              ...row,
+              created_at: knex.fn.now(),
+              updated_at: knex.fn.now(),
+            });
+          }
         } else {
-          await knex("user_plans").insert({
+          // Si no hay número, insertamos siempre (opcional, depende de tu lógica)
+          await trx("user_plans").insert({
             ...row,
             created_at: knex.fn.now(),
             updated_at: knex.fn.now(),
           });
         }
-      } else {
-        await knex("user_plans").insert({
-          ...row,
-          created_at: knex.fn.now(),
-          updated_at: knex.fn.now(),
-        });
       }
-    }
+    });
 
     const rows = await knex("user_plans")
       .where({ project_id: projectId })
@@ -205,10 +210,12 @@ const importPlans = async (req, res, next) => {
 
     res.json({ success: true, message: "Planes importados", data: { plans: rows }, error: null });
   } catch (e) {
+    console.error("Error importando:", e);
     e.code = e.code || "PlanImportError";
     return next(e);
   }
 };
+
 
 const updatePlan = async (req, res, next) => {
   try {
@@ -316,7 +323,7 @@ const deletePlan = async (req, res, next) => {
   }
 };
 
-/* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
+
 /* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
 const matchPlans = async (req, res, next) => {
   try {
@@ -325,20 +332,19 @@ const matchPlans = async (req, res, next) => {
 
     const projectId = req.params.projectId;
     const token = req.cookies["access_token"];
-    const altProjectId = req.headers["x-alt-project-id"];
+    const altProjectId = req.headers["x-alt-project-id"]; 
     const selectedFolderId = req.headers["selected-folder-id"];
 
     if (!token) {
       const error = new Error("Unauthorized");
-      error.status = 401;
-      return next(error);
+      error.status = 401; return next(error);
     }
     if (!altProjectId || !selectedFolderId) {
       const error = new Error("Faltan headers de selección.");
-      error.status = 400;
-      return next(error);
+      error.status = 400; return next(error);
     }
 
+    // Helpers de IDs
     const toBProject = (pid) => {
       const s = String(pid || "");
       if (s.startsWith("b.")) return s;
@@ -354,24 +360,20 @@ const matchPlans = async (req, res, next) => {
     const accProjectGuid = toGuid(altProjectId);
 
     await ensureTables(knex);
-    
-    // Obtener planes
-    const plans = await knex("user_plans").where({ project_id: projectId });
 
-    // Obtener modelos seleccionados
+    // 1) Obtener datos base
+    const plans = await knex("user_plans").where({ project_id: projectId });
     const selectedRows = await knex("model_selection").where({ project_id: projectId }).select("model_id");
     const modelIds = selectedRows.map((r) => r.model_id);
-    
-    // Obtener Sheets de Modelos (AEC)
+
+    // 2) Obtener Sheets de Modelos (AEC)
     const allSheets = [];
     if (modelIds.length) {
         for (const modelId of modelIds) {
           try {
             const ss = await fetchSheets(token, modelId, "property.name.category==Sheets");
             for (const s of ss) allSheets.push(extractSheetFields(s));
-          } catch (e) {
-            console.warn("fetchSheets failed", modelId);
-          }
+          } catch (e) { console.warn("fetchSheets warn", modelId); }
         }
     }
     const byNumber = new Map();
@@ -381,12 +383,12 @@ const matchPlans = async (req, res, next) => {
       if (s.name) byName.set(keyifyName(s.name), s);
     }
 
-    // Obtener Docs (Files)
+    // 3) Obtener Docs (Files)
     const files = await fetchFolderContents(token, altProjectId, selectedFolderId);
+    
+    // Mapas para búsqueda rápida de Docs
     const v1ByLeadingNumber = new Map();
     const v1ByFileBase = new Map();
-    const tipVersionByLeadingNumber = new Map();
-    const tipVersionByFileBase = new Map();
     const itemIdByLeadingNumber = new Map();
     const itemIdByFileBase = new Map();
 
@@ -394,217 +396,201 @@ const matchPlans = async (req, res, next) => {
       if (f?.type !== "items") continue;
       const displayName = f?.attributes?.displayName || f?.attributes?.name || "";
       const v1Date = getV1DateFromInclVersions(f);
-      const tipVersionId = f?.relationships?.tip?.data?.id || null;
       const itemId = f?.id || null;
       const base = normalizeFileBase(displayName);
       const lead = getLeadingSheetNumber(displayName);
 
-      if (v1Date && lead) v1ByLeadingNumber.set(keyifyNumber(lead), v1Date);
-      if (v1Date && base) v1ByFileBase.set(keyifyName(base), v1Date);
-
-      if (tipVersionId && lead) tipVersionByLeadingNumber.set(keyifyNumber(lead), tipVersionId);
-      if (tipVersionId && base) tipVersionByFileBase.set(keyifyName(base), tipVersionId);
-
-      if (itemId && lead) itemIdByLeadingNumber.set(keyifyNumber(lead), itemId);
-      if (itemId && base) itemIdByFileBase.set(keyifyName(base), itemId);
+      if (v1Date) {
+         if (lead) v1ByLeadingNumber.set(keyifyNumber(lead), v1Date);
+         if (base) v1ByFileBase.set(keyifyName(base), v1Date);
+      }
+      if (itemId) {
+         if (lead) itemIdByLeadingNumber.set(keyifyNumber(lead), itemId);
+         if (base) itemIdByFileBase.set(keyifyName(base), itemId);
+      }
     }
 
-    // Helper versiones
+    // Helper de versiones
     const fetchItemVersions = async (itemId) => {
-        try {
-          const url = `https://developer.api.autodesk.com/data/v1/projects/${encodeURIComponent(bProjectId)}/items/${encodeURIComponent(itemId)}/versions`;
-          const { data } = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
-          return Array.isArray(data?.data) ? data.data : [];
-        } catch (e) { return []; }
+      try {
+        const url = `https://developer.api.autodesk.com/data/v1/projects/${encodeURIComponent(bProjectId)}/items/${encodeURIComponent(itemId)}/versions`;
+        const { data } = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+        return Array.isArray(data?.data) ? data.data : [];
+      } catch (e) { return []; }
     };
 
-    // Obtener Project Sheets (ACC Reviews - Emisión real)
+    // 4) Obtener Sheets de ACC Reviews (Emisión Real)
     let projectSheets = [];
     try {
       projectSheets = await fetchProjectSheets(token, accProjectGuid, 200);
     } catch (err) { projectSheets = []; }
-
+    
     const currentSheetsByNum = new Map();
     for (const sh of projectSheets) {
       if (!sh?.isCurrent) continue;
       const k = keyifyNumber(sh.number);
-      if (!k) continue;
-      const prev = currentSheetsByNum.get(k);
-      if (!prev || new Date(sh.createdAt) > new Date(prev.createdAt)) {
-        currentSheetsByNum.set(k, sh);
+      if (k) {
+          const prev = currentSheetsByNum.get(k);
+          if (!prev || new Date(sh.createdAt) > new Date(prev.createdAt)) {
+            currentSheetsByNum.set(k, sh);
+          }
       }
     }
 
-    // Mapeo status
-    const mapApprovalStatus = (value, label) => {
-        const v = String(value || "").toUpperCase().trim();
-        if (["APPROVED", "REJECTED", "IN_REVIEW", "NOT_IN_REVIEW"].includes(v)) return v;
-        if (v === "A" || v === "W" || String(label).toLowerCase().includes("aprob")) return "APPROVED";
-        if (v === "R" || String(label).toLowerCase().includes("rechaz")) return "REJECTED";
-        return "IN_REVIEW";
+    // Mapeo de Status
+    const normalizeStatus = (val) => {
+        const v = String(val || "").toUpperCase();
+        if (v === "A" || v === "APPROVED" || v.includes("APROB")) return "APPROVED";
+        if (v === "R" || v === "REJECTED" || v.includes("RECHAZ")) return "REJECTED";
+        if (v === "OPEN" || v === "IN_REVIEW" || v.includes("REVISI")) return "IN_REVIEW";
+        return v || "";
     };
 
     const patches = [];
     const details = [];
 
+    // --- BUCLE PRINCIPAL ---
     for (const p of plans) {
-      const kNum = keyifyNumber(p.number);
+      // Limpieza de claves
+      const dbNumberClean = String(p.number || "").replace(/\.[a-zA-Z0-9]+$/, "");
+      const kNum = keyifyNumber(dbNumberClean); 
       const kName = keyifyName(p.name);
-      
-      // 1. Match Models
+
+      // Match Model
       let hit = null;
       if (kNum && byNumber.has(kNum)) hit = byNumber.get(kNum);
       else if (kName && byName.has(kName)) hit = byName.get(kName);
 
-      // 2. Match Docs (IDs)
-      let v1 = null, tipVersionId = null, itemId = null;
+      // Match Docs (Solo necesitamos ItemId y V1 Date)
+      let v1 = null;
+      let itemId = null;
+
       if (kNum && v1ByLeadingNumber.has(kNum)) v1 = v1ByLeadingNumber.get(kNum);
       else if (kName && v1ByFileBase.has(kName)) v1 = v1ByFileBase.get(kName);
-
-      if (kNum && tipVersionByLeadingNumber.has(kNum)) tipVersionId = tipVersionByLeadingNumber.get(kNum);
-      else if (kName && tipVersionByFileBase.has(kName)) tipVersionId = tipVersionByFileBase.get(kName);
 
       if (kNum && itemIdByLeadingNumber.has(kNum)) itemId = itemIdByLeadingNumber.get(kNum);
       else if (kName && itemIdByFileBase.has(kName)) itemId = itemIdByFileBase.get(kName);
 
-      // 3. Match Sheets (Emisión)
+      // Match Sheets (Emisión Real)
       let matchedSheet = null;
       if (kNum && currentSheetsByNum.has(kNum)) matchedSheet = currentSheetsByNum.get(kNum);
 
-      // --- OBTENCIÓN DE DATOS EXTERNOS ---
-      let lastVersionDate = null;
+
+      // --- ANÁLISIS PROFUNDO DE VERSIONES ---
+      let everApproved = false;         // ¿Alguna vez fue aprobado?
+      let absoluteFirstReviewDate = null; // La fecha más antigua de revisión
+      let latestReviewStatus = null;    // El estado de la última versión
+      let latestReviewDate = null;      // La fecha de la última revisión
       let lastVersionNumber = null;
-      let hasApprovalFlow = false;
-      let approval = null;
-      let firstReviewVersion = null;
-      let latestReviewVersion = null;
+      let lastVersionDate = null;
 
-      let versions = [];
       if (itemId) {
-        versions = await fetchItemVersions(itemId);
-        // Ordenar desc para "Ultima versión"
-        const desc = [...versions].sort((A, B) => (B?.attributes?.versionNumber || 0) - (A?.attributes?.versionNumber || 0));
-        const latest = desc[0];
-        if (latest) {
-             lastVersionDate = latest.attributes?.lastModifiedTime || latest.attributes?.createTime || null;
-             lastVersionNumber = latest.attributes?.versionNumber || null;
-        }
-
-        // Approval Flow desde Tip
-        if (tipVersionId) {
-             try {
-                const results = await fetchVersionApprovalStatuses(token, altProjectId, tipVersionId);
-                if (results?.length > 0) {
-                    hasApprovalFlow = true;
-                    const last = results[results.length - 1];
-                    const st = mapApprovalStatus(last?.approvalStatus?.value, last?.approvalStatus?.label);
-                    approval = { status: st };
-                }
-             } catch {}
-        }
-
-        // Historial de revisiones (First & Latest) iterando ASCENDENTE
-        const asc = [...versions].sort((A, B) => (A?.attributes?.versionNumber || 0) - (B?.attributes?.versionNumber || 0));
+        const versions = await fetchItemVersions(itemId);
         
-        for (const v of asc) {
-            const vId = v?.id;
+        // Ordenamos: v1, v2, v3... (Ascendente) para encontrar la primera fecha
+        const ascendingVersions = [...versions].sort((a, b) => 
+            (a.attributes?.versionNumber || 0) - (b.attributes?.versionNumber || 0)
+        );
+
+        if (ascendingVersions.length > 0) {
+            // Datos de la última versión (para columnas de versión)
+            const tip = ascendingVersions[ascendingVersions.length - 1];
+            lastVersionNumber = tip.attributes?.versionNumber;
+            lastVersionDate = tip.attributes?.lastModifiedTime || tip.attributes?.createTime;
+        }
+
+        // Iteramos historial completo
+        for (const ver of ascendingVersions) {
+            const vId = ver.id;
             try {
-                const results = await fetchVersionApprovalStatuses(token, altProjectId, vId);
-                if (results?.length > 0) {
-                    const first = results[0];
-                    const last = results[results.length - 1];
+                // Obtenemos flujo de aprobación de ESTA versión
+                const statuses = await fetchVersionApprovalStatuses(token, altProjectId, vId);
+                
+                if (statuses && statuses.length > 0) {
+                    // Tomamos el status final de esta versión
+                    const finalState = statuses[statuses.length - 1];
+                    const statusStr = normalizeStatus(finalState.approvalStatus?.value || finalState.approvalStatus?.label);
                     
-                    // Buscar fechas de review
-                    let dateFirst = null; 
-                    let dateLast = null;
-                    if (first?.review?.id) {
-                        const r = await fetchReviewById(token, accProjectGuid, first.review.id);
-                        dateFirst = r?.createdAt || r?.finishedAt || null;
-                    }
-                    if (last?.review?.id) {
-                         if (last.review.id === first.review.id && dateFirst) dateLast = dateFirst;
-                         else {
-                            const r = await fetchReviewById(token, accProjectGuid, last.review.id);
-                            dateLast = r?.createdAt || r?.finishedAt || null;
-                         }
+                    // 1. Check de Aprobación Histórica
+                    if (statusStr === "APPROVED") {
+                        everApproved = true;
                     }
 
-                    const objFirst = { 
-                        reviewDate: dateFirst, 
-                        status: mapApprovalStatus(first?.approvalStatus?.value) 
-                    };
-                    const objLast = { 
-                        reviewDate: dateLast, 
-                        status: mapApprovalStatus(last?.approvalStatus?.value) 
-                    };
+                    // Obtenemos fecha de esta revisión
+                    let reviewDate = null;
+                    if (finalState.review?.id) {
+                        const r = await fetchReviewById(token, accProjectGuid, finalState.review.id);
+                        // Preferimos finishedAt, sino updatedAt, sino createdAt
+                        reviewDate = r?.createdAt || null;
+                    }
 
-                    if (!firstReviewVersion) firstReviewVersion = objFirst;
-                    latestReviewVersion = objLast;
+                    // 2. Primera Fecha de Revisión (Global)
+                    // Como el loop es ascendente (v1->vLast), la primera que encontremos es la absoluta
+                    if (reviewDate && !absoluteFirstReviewDate) {
+                        absoluteFirstReviewDate = reviewDate;
+                    }
+
+                    // 3. Actualizamos "Latest" en cada iteración, así al final del loop queda la última
+                    latestReviewStatus = statusStr;
+                    latestReviewDate = reviewDate; 
                 }
-            } catch {}
+            } catch (err) {
+                // Ignorar 404 (versión sin review)
+            }
         }
       }
 
-      // --- CREAR PATCH (Mapeo solicitado) ---
+      // --- CONSTRUCCIÓN DEL PATCH ---
       const patch = {};
 
-      // Columna: Revisión Actual & Fecha Revisión Actual (Desde Model)
+      // Datos del Modelo AEC
       if (hit) {
-        if (hit.currentRevision !== undefined) patch.current_revision = hit.currentRevision;
+        if (hit.currentRevision) patch.current_revision = hit.currentRevision;
         if (hit.currentRevisionDate) patch.current_revision_date = hit.currentRevisionDate;
       }
 
-      // Columna: Fecha generación Docs (v1Date)
+      // Datos de Archivos ACC
       if (v1) patch.actual_gen_date = v1;
-
-      // Columna: Versión en Docs & Fecha última versión Docs
-      if (lastVersionNumber != null) patch.docs_version_number = lastVersionNumber;
+      if (lastVersionNumber) patch.docs_version_number = lastVersionNumber;
       if (lastVersionDate) patch.docs_last_modified = normDate(lastVersionDate);
 
-      // Columna: Aprobación Docs (Booleano)
-      patch.has_approval_flow = hasApprovalFlow ? 1 : 0;
+      // --- AQUÍ ESTÁ LA LÓGICA CORREGIDA ---
+      
+      // 1. "Aprob.": Check si ALGUNA VEZ fue aprobado (everApproved)
+      patch.has_approval_flow = everApproved ? 1 : 0;
 
-      // Columna: Revisión técnica real (First Review Date)
-      if (firstReviewVersion?.reviewDate) {
-          patch.actual_review_date = normDate(firstReviewVersion.reviewDate);
+      // 2. "Rev. Real": La fecha de la PRIMERA revisión histórica
+      if (absoluteFirstReviewDate) {
+          patch.actual_review_date = normDate(absoluteFirstReviewDate);
       }
 
-      // Columna: Último flujo de revisión (Latest Review Date)
-      if (latestReviewVersion?.reviewDate) {
-          patch.latest_review_date = normDate(latestReviewVersion.reviewDate);
+      // 3. "Estado Flujo": El estado de la ÚLTIMA revisión tocada
+      if (latestReviewStatus) {
+          patch.latest_review_status = latestReviewStatus;
       }
 
-      // Columna: Estatus último flujo (Latest Review Status)
-      if (latestReviewVersion?.status) {
-          patch.latest_review_status = latestReviewVersion.status;
+      // 4. "Últ. Flujo": La fecha de esa última revisión
+      if (latestReviewDate) {
+          patch.latest_review_date = normDate(latestReviewDate);
       }
 
-      // Columna: Emisión construcción real (Issue CreatedAt)
-      if (matchedSheet?.createdAt) {
-          patch.actual_issue_date = normDate(matchedSheet.createdAt);
+      // Datos de Emisión (Sheets)
+      if (matchedSheet) {
+          if (matchedSheet.createdAt) patch.actual_issue_date = normDate(matchedSheet.createdAt);
+          if (matchedSheet.updatedAt) patch.sheet_updated_at = normDate(matchedSheet.updatedAt);
+          if (matchedSheet.versionSet?.name) patch.sheet_version_set = matchedSheet.versionSet.name;
       }
 
-      // Columna: Actualizado en Sheets (Issue UpdatedAt)
-      if (matchedSheet?.updatedAt) {
-          patch.sheet_updated_at = normDate(matchedSheet.updatedAt);
-      }
-
-      // Columna: Conjunto (Issue Version Set Name)
-      if (matchedSheet?.versionSet?.name) {
-          patch.sheet_version_set = matchedSheet.versionSet.name;
-      }
-
-      // NOTA: NO ACTUALIZAMOS 'status' AQUÍ PARA QUE EL FRONTEND MUESTRE LA BARRA DE PROGRESO
-
-      if (Object.keys(patch).length) {
+      // Guardar cambios
+      if (Object.keys(patch).length > 0) {
         patch.updated_at = knex.fn.now();
         patches.push({ id: p.id, patch });
       }
-
-      // Detalles para debug en frontend (opcional)
-      details.push({ id: p.id, patch }); 
+      
+      details.push({ id: p.id, key: kNum, everApproved, firstDate: absoluteFirstReviewDate, latest: latestReviewStatus });
     }
 
+    // Transacción de actualización masiva
     if (patches.length) {
       await knex.transaction(async (trx) => {
         for (const { id, patch } of patches) {
@@ -615,11 +601,12 @@ const matchPlans = async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        message: "Match completado.",
-        data: { matchedPlans: patches, details }
+        message: "Match completado con lógica histórica corregida.",
+        data: { matchedPlans: patches.length, details }
     });
 
   } catch (e) {
+    console.error("Match error:", e);
     return next(e);
   }
 };
