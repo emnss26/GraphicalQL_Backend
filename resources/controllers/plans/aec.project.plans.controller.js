@@ -325,6 +325,7 @@ const deletePlan = async (req, res, next) => {
 
 
 /* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
+/* ----------------- MATCH: AEC (modelos) + ACC (folder) ----------------- */
 const matchPlans = async (req, res, next) => {
   try {
     const { fetchReviewById } = require("../../libs/acc/acc.get.review.by.id.js");
@@ -332,7 +333,7 @@ const matchPlans = async (req, res, next) => {
 
     const projectId = req.params.projectId;
     const token = req.cookies["access_token"];
-    const altProjectId = req.headers["x-alt-project-id"]; 
+    const altProjectId = req.headers["x-alt-project-id"];
     const selectedFolderId = req.headers["selected-folder-id"];
 
     if (!token) {
@@ -361,6 +362,31 @@ const matchPlans = async (req, res, next) => {
 
     await ensureTables(knex);
 
+    // ============================================================
+    // FASE 2: Normalización (PDF + keyifyNumber con guiones)
+    // ============================================================
+
+    // Solo removemos .pdf (NO cualquier extensión), para evitar falsos positivos
+    // y no romper números tipo "A-101.01"
+    const stripPdfExtension = (value) => {
+      const s = String(value || "").trim();
+      return s.replace(/\.pdf$/i, "");
+    };
+
+    // Permite guiones (-). Limpia .pdf ANTES de crear la key.
+    // Regla: deja solo [A-Z0-9-] (conserva el guion)
+    const keyifyNumber = (value) => {
+      const s = stripPdfExtension(value);
+      if (!s) return "";
+      return String(s)
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "")        // quita espacios
+        .replace(/[^A-Z0-9-]/g, ""); // conserva guiones
+    };
+
+    // ============================================================
+
     // 1) Obtener datos base
     const plans = await knex("user_plans").where({ project_id: projectId });
     const selectedRows = await knex("model_selection").where({ project_id: projectId }).select("model_id");
@@ -369,23 +395,27 @@ const matchPlans = async (req, res, next) => {
     // 2) Obtener Sheets de Modelos (AEC)
     const allSheets = [];
     if (modelIds.length) {
-        for (const modelId of modelIds) {
-          try {
-            const ss = await fetchSheets(token, modelId, "property.name.category==Sheets");
-            for (const s of ss) allSheets.push(extractSheetFields(s));
-          } catch (e) { console.warn("fetchSheets warn", modelId); }
-        }
+      for (const modelId of modelIds) {
+        try {
+          const ss = await fetchSheets(token, modelId, "property.name.category==Sheets");
+          for (const s of ss) allSheets.push(extractSheetFields(s));
+        } catch (e) { console.warn("fetchSheets warn", modelId); }
+      }
     }
+
     const byNumber = new Map();
     const byName = new Map();
     for (const s of allSheets) {
-      if (s.number) byNumber.set(keyifyNumber(s.number), s);
+      if (s.number) {
+        const cleanNum = stripPdfExtension(s.number);          // <-- Fase 2
+        byNumber.set(keyifyNumber(cleanNum), s);              // <-- Fase 2 (guiones)
+      }
       if (s.name) byName.set(keyifyName(s.name), s);
     }
 
     // 3) Obtener Docs (Files)
     const files = await fetchFolderContents(token, altProjectId, selectedFolderId);
-    
+
     // Mapas para búsqueda rápida de Docs
     const v1ByLeadingNumber = new Map();
     const v1ByFileBase = new Map();
@@ -394,19 +424,23 @@ const matchPlans = async (req, res, next) => {
 
     for (const f of files || []) {
       if (f?.type !== "items") continue;
-      const displayName = f?.attributes?.displayName || f?.attributes?.name || "";
+
+      const rawDisplayName = f?.attributes?.displayName || f?.attributes?.name || "";
+      const displayName = stripPdfExtension(rawDisplayName); // <-- Fase 2: limpiar .pdf antes de extraer claves
+
       const v1Date = getV1DateFromInclVersions(f);
       const itemId = f?.id || null;
-      const base = normalizeFileBase(displayName);
-      const lead = getLeadingSheetNumber(displayName);
+
+      const base = normalizeFileBase(displayName);          // <-- ya sin .pdf
+      const lead = getLeadingSheetNumber(displayName);      // <-- ya sin .pdf
 
       if (v1Date) {
-         if (lead) v1ByLeadingNumber.set(keyifyNumber(lead), v1Date);
-         if (base) v1ByFileBase.set(keyifyName(base), v1Date);
+        if (lead) v1ByLeadingNumber.set(keyifyNumber(lead), v1Date); // <-- Fase 2 (guiones)
+        if (base) v1ByFileBase.set(keyifyName(base), v1Date);
       }
       if (itemId) {
-         if (lead) itemIdByLeadingNumber.set(keyifyNumber(lead), itemId);
-         if (base) itemIdByFileBase.set(keyifyName(base), itemId);
+        if (lead) itemIdByLeadingNumber.set(keyifyNumber(lead), itemId); // <-- Fase 2 (guiones)
+        if (base) itemIdByFileBase.set(keyifyName(base), itemId);
       }
     }
 
@@ -424,36 +458,39 @@ const matchPlans = async (req, res, next) => {
     try {
       projectSheets = await fetchProjectSheets(token, accProjectGuid, 200);
     } catch (err) { projectSheets = []; }
-    
+
     const currentSheetsByNum = new Map();
     for (const sh of projectSheets) {
       if (!sh?.isCurrent) continue;
-      const k = keyifyNumber(sh.number);
+
+      const cleanNum = stripPdfExtension(sh.number);   // <-- Fase 2
+      const k = keyifyNumber(cleanNum);                // <-- Fase 2 (guiones)
+
       if (k) {
-          const prev = currentSheetsByNum.get(k);
-          if (!prev || new Date(sh.createdAt) > new Date(prev.createdAt)) {
-            currentSheetsByNum.set(k, sh);
-          }
+        const prev = currentSheetsByNum.get(k);
+        if (!prev || new Date(sh.createdAt) > new Date(prev.createdAt)) {
+          currentSheetsByNum.set(k, sh);
+        }
       }
     }
 
     // Mapeo de Status
     const normalizeStatus = (val) => {
-        const v = String(val || "").toUpperCase();
-        if (v === "A" || v === "APPROVED" || v.includes("APROB")) return "APPROVED";
-        if (v === "R" || v === "REJECTED" || v.includes("RECHAZ")) return "REJECTED";
-        if (v === "OPEN" || v === "IN_REVIEW" || v.includes("REVISI")) return "IN_REVIEW";
-        return v || "";
+      const v = String(val || "").toUpperCase();
+      if (v === "A" || v === "APPROVED" || v.includes("APROB")) return "APPROVED";
+      if (v === "R" || v === "REJECTED" || v.includes("RECHAZ")) return "REJECTED";
+      if (v === "OPEN" || v === "IN_REVIEW" || v.includes("REVISI")) return "IN_REVIEW";
+      return v || "";
     };
 
     const patches = [];
     const details = [];
 
-    // --- BUCLE PRINCIPAL ---
-    for (const p of plans) {
-      // Limpieza de claves
-      const dbNumberClean = String(p.number || "").replace(/\.[a-zA-Z0-9]+$/, "");
-      const kNum = keyifyNumber(dbNumberClean); 
+    // --- FUNCIÓN DE PROCESAMIENTO UNITARIO (SE EJECUTARÁ EN PARALELO) ---
+    const processPlan = async (p) => {
+      // Limpieza de claves (FASE 2: solo .pdf, NO regex agresivo)
+      const dbNumberClean = stripPdfExtension(p.number || ""); // <-- Fase 2
+      const kNum = keyifyNumber(dbNumberClean);                // <-- Fase 2 (guiones)
       const kName = keyifyName(p.name);
 
       // Match Model
@@ -475,119 +512,109 @@ const matchPlans = async (req, res, next) => {
       let matchedSheet = null;
       if (kNum && currentSheetsByNum.has(kNum)) matchedSheet = currentSheetsByNum.get(kNum);
 
-
       // --- ANÁLISIS PROFUNDO DE VERSIONES ---
-      let everApproved = false;         // ¿Alguna vez fue aprobado?
-      let absoluteFirstReviewDate = null; // La fecha más antigua de revisión
-      let latestReviewStatus = null;    // El estado de la última versión
-      let latestReviewDate = null;      // La fecha de la última revisión
+      let everApproved = false;
+      let absoluteFirstReviewDate = null;
+      let latestReviewStatus = null;
+      let latestReviewDate = null;
       let lastVersionNumber = null;
       let lastVersionDate = null;
 
       if (itemId) {
         const versions = await fetchItemVersions(itemId);
-        
-        // Ordenamos: v1, v2, v3... (Ascendente) para encontrar la primera fecha
-        const ascendingVersions = [...versions].sort((a, b) => 
-            (a.attributes?.versionNumber || 0) - (b.attributes?.versionNumber || 0)
+
+        // Ordenamos: v1, v2, v3... (Ascendente)
+        const ascendingVersions = [...versions].sort((a, b) =>
+          (a.attributes?.versionNumber || 0) - (b.attributes?.versionNumber || 0)
         );
 
         if (ascendingVersions.length > 0) {
-            // Datos de la última versión (para columnas de versión)
-            const tip = ascendingVersions[ascendingVersions.length - 1];
-            lastVersionNumber = tip.attributes?.versionNumber;
-            lastVersionDate = tip.attributes?.lastModifiedTime || tip.attributes?.createTime;
+          // Datos de la última versión
+          const tip = ascendingVersions[ascendingVersions.length - 1];
+          lastVersionNumber = tip.attributes?.versionNumber;
+          lastVersionDate = tip.attributes?.lastModifiedTime || tip.attributes?.createTime;
         }
 
         // Iteramos historial completo
         for (const ver of ascendingVersions) {
-            const vId = ver.id;
-            try {
-                // Obtenemos flujo de aprobación de ESTA versión
-                const statuses = await fetchVersionApprovalStatuses(token, altProjectId, vId);
-                
-                if (statuses && statuses.length > 0) {
-                    // Tomamos el status final de esta versión
-                    const finalState = statuses[statuses.length - 1];
-                    const statusStr = normalizeStatus(finalState.approvalStatus?.value || finalState.approvalStatus?.label);
-                    
-                    // 1. Check de Aprobación Histórica
-                    if (statusStr === "APPROVED") {
-                        everApproved = true;
-                    }
+          const vId = ver.id;
+          try {
+            // Obtenemos flujo de aprobación de ESTA versión
+            const statuses = await fetchVersionApprovalStatuses(token, altProjectId, vId);
 
-                    // Obtenemos fecha de esta revisión
-                    let reviewDate = null;
-                    if (finalState.review?.id) {
-                        const r = await fetchReviewById(token, accProjectGuid, finalState.review.id);
-                        // Preferimos finishedAt, sino updatedAt, sino createdAt
-                        reviewDate = r?.createdAt || null;
-                    }
+            if (statuses && statuses.length > 0) {
+              const finalState = statuses[statuses.length - 1];
+              const statusStr = normalizeStatus(finalState.approvalStatus?.value || finalState.approvalStatus?.label);
 
-                    // 2. Primera Fecha de Revisión (Global)
-                    // Como el loop es ascendente (v1->vLast), la primera que encontremos es la absoluta
-                    if (reviewDate && !absoluteFirstReviewDate) {
-                        absoluteFirstReviewDate = reviewDate;
-                    }
+              // 1. Check de Aprobación Histórica
+              if (statusStr === "APPROVED") everApproved = true;
 
-                    // 3. Actualizamos "Latest" en cada iteración, así al final del loop queda la última
-                    latestReviewStatus = statusStr;
-                    latestReviewDate = reviewDate; 
-                }
-            } catch (err) {
-                // Ignorar 404 (versión sin review)
+              // Obtenemos fecha de esta revisión
+              let reviewDate = null;
+              if (finalState.review?.id) {
+                const r = await fetchReviewById(token, accProjectGuid, finalState.review.id);
+                reviewDate = r?.createdAt || null;
+              }
+
+              // 2. Primera Fecha de Revisión (Global)
+              if (reviewDate && !absoluteFirstReviewDate) {
+                absoluteFirstReviewDate = reviewDate;
+              }
+
+              // 3. Actualizamos "Latest"
+              latestReviewStatus = statusStr;
+              latestReviewDate = reviewDate;
             }
+          } catch (err) { /* Ignorar 404 */ }
         }
       }
 
       // --- CONSTRUCCIÓN DEL PATCH ---
       const patch = {};
 
-      // Datos del Modelo AEC
       if (hit) {
         if (hit.currentRevision) patch.current_revision = hit.currentRevision;
         if (hit.currentRevisionDate) patch.current_revision_date = hit.currentRevisionDate;
       }
 
-      // Datos de Archivos ACC
       if (v1) patch.actual_gen_date = v1;
       if (lastVersionNumber) patch.docs_version_number = lastVersionNumber;
       if (lastVersionDate) patch.docs_last_modified = normDate(lastVersionDate);
 
-      // --- AQUÍ ESTÁ LA LÓGICA CORREGIDA ---
-      
-      // 1. "Aprob.": Check si ALGUNA VEZ fue aprobado (everApproved)
+      // Lógica de Negocio
       patch.has_approval_flow = everApproved ? 1 : 0;
 
-      // 2. "Rev. Real": La fecha de la PRIMERA revisión histórica
-      if (absoluteFirstReviewDate) {
-          patch.actual_review_date = normDate(absoluteFirstReviewDate);
-      }
+      if (absoluteFirstReviewDate) patch.actual_review_date = normDate(absoluteFirstReviewDate);
+      if (latestReviewStatus) patch.latest_review_status = latestReviewStatus;
+      if (latestReviewDate) patch.latest_review_date = normDate(latestReviewDate);
 
-      // 3. "Estado Flujo": El estado de la ÚLTIMA revisión tocada
-      if (latestReviewStatus) {
-          patch.latest_review_status = latestReviewStatus;
-      }
-
-      // 4. "Últ. Flujo": La fecha de esa última revisión
-      if (latestReviewDate) {
-          patch.latest_review_date = normDate(latestReviewDate);
-      }
-
-      // Datos de Emisión (Sheets)
       if (matchedSheet) {
-          if (matchedSheet.createdAt) patch.actual_issue_date = normDate(matchedSheet.createdAt);
-          if (matchedSheet.updatedAt) patch.sheet_updated_at = normDate(matchedSheet.updatedAt);
-          if (matchedSheet.versionSet?.name) patch.sheet_version_set = matchedSheet.versionSet.name;
+        if (matchedSheet.createdAt) patch.actual_issue_date = normDate(matchedSheet.createdAt);
+        if (matchedSheet.updatedAt) patch.sheet_updated_at = normDate(matchedSheet.updatedAt);
+        if (matchedSheet.versionSet?.name) patch.sheet_version_set = matchedSheet.versionSet.name;
       }
 
-      // Guardar cambios
       if (Object.keys(patch).length > 0) {
         patch.updated_at = knex.fn.now();
-        patches.push({ id: p.id, patch });
+        return { id: p.id, patch, details: { id: p.id, key: kNum, everApproved, firstDate: absoluteFirstReviewDate, latest: latestReviewStatus } };
       }
-      
-      details.push({ id: p.id, key: kNum, everApproved, firstDate: absoluteFirstReviewDate, latest: latestReviewStatus });
+      return null;
+    };
+
+    // --- EJECUCIÓN POR LOTES (BATCHES) ---
+    const BATCH_SIZE = 5;
+
+    for (let i = 0; i < plans.length; i += BATCH_SIZE) {
+      const batch = plans.slice(i, i + BATCH_SIZE);
+
+      const results = await Promise.all(batch.map(p => processPlan(p)));
+
+      for (const res of results) {
+        if (res) {
+          patches.push({ id: res.id, patch: res.patch });
+          if (res.details) details.push(res.details);
+        }
+      }
     }
 
     // Transacción de actualización masiva
@@ -600,9 +627,9 @@ const matchPlans = async (req, res, next) => {
     }
 
     res.status(200).json({
-        success: true,
-        message: "Match completado con lógica histórica corregida.",
-        data: { matchedPlans: patches.length, details }
+      success: true,
+      message: "Match completado (Optimizado con Lotes Paralelos).",
+      data: { matchedPlans: patches.length, details }
     });
 
   } catch (e) {
