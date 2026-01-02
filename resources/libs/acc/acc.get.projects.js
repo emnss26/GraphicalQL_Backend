@@ -1,29 +1,40 @@
-const axios = require("axios");
+const axios = require("axios")
 
-async function fetchAccProjects(token, accountId) {
-  if (!token) throw new Error("No token provided");
-  
-  let allProjects = [];
-  // URL base para proyectos
-  let nextUrl = `https://developer.api.autodesk.com/project/v1/hubs/${accountId}/projects`;
+/**
+ * Fetch ACC/Data Management projects for a hub using pagination.
+ *
+ * @param {string} token APS access token
+ * @param {string} hubId Data Management hub id (e.g., "b.xxxx...")
+ * @returns {Promise<Array>}
+ */
+async function fetchAccProjects(token, hubId) {
+  if (!token) throw new Error("Missing APS access token")
+  if (!hubId) throw new Error("Missing hubId")
+
+  const projects = []
+  let nextUrl = `https://developer.api.autodesk.com/project/v1/hubs/${encodeURIComponent(
+    hubId
+  )}/projects`
 
   try {
     while (nextUrl) {
       const { data } = await axios.get(nextUrl, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+        headers: { Authorization: `Bearer ${token}` },
+      })
 
-      allProjects = [...allProjects, ...(data.data || [])];
+      if (Array.isArray(data?.data)) projects.push(...data.data)
 
-      // Verificar si existe siguiente página en los links
-      nextUrl = data.links?.next?.href || null;
+      nextUrl = data?.links?.next?.href || null
     }
 
-    return allProjects;
+    return projects
   } catch (error) {
-    console.error("Error fetching ACC projects:", error.response?.data || error.message);
-    throw error;
+    console.error(
+      "Error fetching ACC projects:",
+      error?.response?.data || error?.message || error
+    )
+    throw error
   }
 }
 
-module.exports = { fetchAccProjects };
+module.exports = { fetchAccProjects }

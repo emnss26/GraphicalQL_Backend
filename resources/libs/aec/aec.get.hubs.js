@@ -1,41 +1,58 @@
-const axios = require("axios");
+const axios = require("axios")
 
+const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
+
+/**
+ * Fetch all AEC hubs via GraphQL pagination (cursor-based).
+ *
+ * @param {string} token APS access token
+ * @returns {Promise<Array<{id: string, name: string}>>}
+ */
 async function fetchHubs(token) {
-  let allHubs = [];
-  let cursor = null;
-  let hasMore = true;
+  if (!token) throw new Error("Missing APS access token")
+
+  const query = `
+    query GetHubs($cursor: String) {
+      hubs(pagination: { cursor: $cursor }) {
+        pagination { cursor }
+        results { id name }
+      }
+    }
+  `
+
+  const hubs = []
+  let cursor = null
 
   try {
-    while (hasMore) {
-      const { data } = await axios({
-        method: "POST",
-        url: "https://developer.api.autodesk.com/aec/graphql",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        data: {
-          query: `
-            query GetHubs($cursor: String) {
-              hubs(pagination: { cursor: $cursor }) {
-                pagination { cursor }
-                results { id name }
-              }
-            }
-          `,
-          variables: { cursor }
-        },
-      });
+    while (true) {
+      const { data } = await axios.post(
+        AEC_GRAPHQL_URL,
+        { query, variables: { cursor } },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      )
 
-      if (data.errors) throw new Error(data.errors[0].message);
+      const gqlErrors = data?.errors
+      if (Array.isArray(gqlErrors) && gqlErrors.length) {
+        throw new Error(gqlErrors[0]?.message || "AEC GraphQL error")
+      }
 
-      const results = data?.data?.hubs?.results || [];
-      allHubs = [...allHubs, ...results];
-      
-      cursor = data?.data?.hubs?.pagination?.cursor;
-      if (!cursor) hasMore = false;
+      const batch = data?.data?.hubs?.results || []
+      if (Array.isArray(batch) && batch.length) hubs.push(...batch)
+
+      cursor = data?.data?.hubs?.pagination?.cursor || null
+      if (!cursor) break
     }
-    return allHubs;
+
+    return hubs
   } catch (error) {
-    console.error("Error fetching AEC hubs:", error.message);
-    throw error;
+    console.error("Error fetching AEC hubs:", error?.message || error)
+    throw error
   }
 }
-module.exports = { fetchHubs };
+
+module.exports = { fetchHubs }

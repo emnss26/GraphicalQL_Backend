@@ -1,47 +1,54 @@
-const axios = require("axios");
+const axios = require("axios")
+
+const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
 
 /**
- * Fetches subfolders within a specified folder in an AEC project.
+ * Fetch subfolders inside a specific folder in an AEC project (GraphQL).
  *
- * @param {string} token - APS access token.
- * @param {string} projectId - AEC project identifier.
- * @param {string} folderId - Parent folder ID to retrieve subfolders from.
- * @returns {Promise<Array>} - List of subfolder objects.
+ * @param {string} token APS access token
+ * @param {string} projectId AEC project ID
+ * @param {string} folderId Parent folder ID
+ * @returns {Promise<Array>} Subfolders list
  */
 async function fetchSubFolders(token, projectId, folderId) {
-  try {
-    const { data, errors } = await axios({
-      method: "POST",
-      url: "https://developer.api.autodesk.com/aec/graphql",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      data: {
-        query: `
-          query GetFoldersByFolder($projectId: ID!, $folderId: ID!) {
-            foldersByFolder(projectId: $projectId, folderId: $folderId) {
-              results {
-                id
-                name
-                objectCount
-              }
-            }
-          }
-        `,
-        variables: { projectId, folderId }
-      },
-    }).then(res => res.data);
+  if (!token) throw new Error("Missing APS access token")
+  if (!projectId) throw new Error("Missing projectId")
+  if (!folderId) throw new Error("Missing folderId")
 
-    if (errors?.length) {
-      throw new Error(errors.map(e => e.message).join("\n"));
+  const query = `
+    query GetFoldersByFolder($projectId: ID!, $folderId: ID!) {
+      foldersByFolder(projectId: $projectId, folderId: $folderId) {
+        results {
+          id
+          name
+          objectCount
+        }
+      }
+    }
+  `
+
+  try {
+    const { data } = await axios.post(
+      AEC_GRAPHQL_URL,
+      { query, variables: { projectId, folderId } },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    )
+
+    const gqlErrors = data?.errors
+    if (Array.isArray(gqlErrors) && gqlErrors.length) {
+      throw new Error(gqlErrors.map((e) => e?.message).filter(Boolean).join("\n") || "AEC GraphQL error")
     }
 
-    return data?.foldersByFolder?.results || [];
+    return data?.data?.foldersByFolder?.results || []
   } catch (error) {
-    console.error("Error fetching subfolders:", error.response?.data || error.message);
-    throw error;
+    console.error("Error fetching subfolders:", error?.response?.data || error?.message || error)
+    throw error
   }
 }
 
-module.exports = { fetchSubFolders };
+module.exports = { fetchSubFolders }

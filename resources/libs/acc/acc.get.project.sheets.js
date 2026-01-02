@@ -1,31 +1,38 @@
-const axios = require("axios");
+const axios = require("axios")
 
 /**
- * Normalizes an ACC project ID to the bare UUID string.
- * Supports formats like "urn:adsk.workspace:prod.project:{id}" or "b.{id}".
- * 
- * @param {string} projectId - Original project ID in different formats
- * @returns {string} - Normalized project ID
+ * Normalize an ACC project identifier to a bare UUID.
+ * Accepts:
+ * - urn:adsk.workspace:prod.project:{uuid}
+ * - b.{uuid}
+ * - {uuid}
+ *
+ * @param {string} projectId
+ * @returns {string}
  */
 function normalizeAccProjectId(projectId) {
-  const s = String(projectId || "");
-  if (s.startsWith("urn:adsk.workspace:prod.project:")) return s.split(":").pop();
-  return s.replace(/^b\./i, "");
+  const raw = String(projectId || "").trim()
+
+  if (raw.startsWith("urn:adsk.workspace:prod.project:")) {
+    return raw.split(":").pop()
+  }
+
+  return raw.replace(/^b\./i, "")
 }
 
 /**
- * Fetches all sheets (drawings) from ACC Construction Sheets Index for a project.
- * Uses pagination to retrieve full list if over the limit.
- * 
- * @param {string} token - APS access token
- * @param {string} projectId - ACC project ID
- * @param {number} limit - Number of results per page (default: 200)
- * @returns {Promise<Array>} - List of sheets (drawings)
+ * Fetch all sheets (drawings) from ACC Sheets Index using pagination.
+ *
+ * @param {string} token APS access token
+ * @param {string} projectId ACC project id (any supported format)
+ * @param {number} limit Page size (default 200)
+ * @returns {Promise<Array>}
  */
 async function fetchProjectSheets(token, projectId, limit = 200) {
-  const pid = normalizeAccProjectId(projectId);
-  let url = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/sheets?limit=${limit}`;
-  const results = [];
+  const pid = normalizeAccProjectId(projectId)
+  const results = []
+
+  let url = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/sheets?limit=${limit}`
 
   while (url) {
     const { data } = await axios.get(url, {
@@ -33,22 +40,22 @@ async function fetchProjectSheets(token, projectId, limit = 200) {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
-    });
+    })
 
-    if (Array.isArray(data?.results)) results.push(...data.results);
+    if (Array.isArray(data?.results)) results.push(...data.results)
 
-    const next = data?.pagination?.nextUrl;
-    if (!next) break;
+    const nextUrl = data?.pagination?.nextUrl
+    if (!nextUrl) break
 
-    url = next.startsWith("http")
-      ? next
-      : `https://developer.api.autodesk.com${next}`;
+    url = nextUrl.startsWith("http")
+      ? nextUrl
+      : `https://developer.api.autodesk.com${nextUrl}`
   }
 
-  return results;
+  return results
 }
 
 module.exports = {
   fetchProjectSheets,
   normalizeAccProjectId,
-};
+}

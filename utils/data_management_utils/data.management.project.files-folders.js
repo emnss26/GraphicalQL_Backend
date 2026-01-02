@@ -1,25 +1,24 @@
-const axios = require("axios");
-
-const {getRootFolderId} = require ("../../resources/libs/data.management.get.root.folder.js")
+const { getRootFolderId } = require("../../resources/libs/data.management.get.root.folder.js");
 const { listFoldersRecursively } = require("../../resources/libs/data.management.get.folders-files.js");
 
-const  GetProjectFilesFolders = async (token, hubId, projectId) => {
+/**
+ * Returns a recursive list of folders starting from the project's "Project Files" root folder.
+ *
+ * @param {string} token APS access token.
+ * @param {string} hubId Data Management hub/account id.
+ * @param {string} projectId Data Management project id (e.g., b.{guid} or raw guid depending on your caller).
+ * @returns {Promise<Array<{id: string, name: string}>>} Flattened folder list.
+ */
+async function GetProjectFilesFolders(token, hubId, projectId) {
   try {
-    // Get the root folder ID for the project
     const rootFolderId = await getRootFolderId(token, hubId, projectId);
-    //console.log("Root Folder ID:", rootFolderId);
-
-    // List folders recursively starting from the root folder
     const folders = await listFoldersRecursively(token, projectId, rootFolderId);
-    //console.log("Folders:", folders);
-
     return folders;
   } catch (error) {
-    console.error("Error fetching project files and folders:", error);
+    const details = error?.response?.data || error?.message;
+    console.error("GetProjectFilesFolders failed:", details);
     throw error;
   }
 }
 
-module.exports = {
-  GetProjectFilesFolders,
-};
+module.exports = { GetProjectFilesFolders };

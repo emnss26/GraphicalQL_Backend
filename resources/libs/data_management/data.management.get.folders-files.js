@@ -1,42 +1,59 @@
-const axios = require('axios');
+const axios = require("axios")
+
+const DM_BASE_URL = "https://developer.api.autodesk.com/data/v1"
 
 /**
- * Recursively lists all folders starting from a given folderId within a project.
+ * Recursively lists all subfolders starting from a given folder in a project.
+ * Notes:
+ * - Uses Data Management "folder contents" endpoint
+ * - Traverses nested folders depth-first
  *
- * @param {string} token - APS access token.
- * @param {string} projectId - ACC project ID.
- * @param {string} folderId - Root folder ID to start the recursion.
- * @returns {Promise<Array<{ id: string, name: string }>>} - List of folder objects with id and name.
+ * @param {string} token APS access token
+ * @param {string} projectId Data Management project id (usually "b.{guid}")
+ * @param {string} folderId Root folder id to start from
+ * @returns {Promise<Array<{ id: string, name: string }>>} Flat list of folders (id + name)
  */
 async function listFoldersRecursively(token, projectId, folderId) {
-  try {
-    const { data } = await axios.get(
-      `https://developer.api.autodesk.com/data/v1/projects/${projectId}/folders/${folderId}/contents`,
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
+  if (!token) throw new Error("Missing APS access token")
+  if (!projectId) throw new Error("Missing projectId")
+  if (!folderId) throw new Error("Missing folderId")
 
-    const items = data.data || [];
-    const folders = items.filter((item) => item.type === "folders");
+  const headers = { Authorization: `Bearer ${token}` }
+  const results = []
 
-    const result = folders.map((folder) => ({
-      id: folder.id,
-      name: folder.attributes.displayName
-    }));
+  const fetchFolderContents = async (currentFolderId) => {
+    const url = `${DM_BASE_URL}/projects/${encodeURIComponent(projectId)}/folders/${encodeURIComponent(
+      currentFolderId
+    )}/contents`
+
+    const { data } = await axios.get(url, { headers })
+    return Array.isArray(data?.data) ? data.data : []
+  }
+
+  const walk = async (currentFolderId) => {
+    const items = await fetchFolderContents(currentFolderId)
+    const folders = items.filter((item) => item?.type === "folders")
 
     for (const folder of folders) {
-      const subFolders = await listFoldersRecursively(token, projectId, folder.id);
-      result.push(...subFolders);
-    }
+      results.push({
+        id: folder.id,
+        name: folder?.attributes?.displayName || folder?.attributes?.name || "",
+      })
 
-    return result;
+      await walk(folder.id)
+    }
+  }
+
+  try {
+    await walk(folderId)
+    return results
   } catch (error) {
-    console.error("Error listing folders recursively:", error.response?.data || error.message);
-    throw error;
+    console.error(
+      "Error listing folders recursively:",
+      error?.response?.data || error?.message || error
+    )
+    throw error
   }
 }
 
-module.exports = {
-  listFoldersRecursively,
-};
+module.exports = { listFoldersRecursively }

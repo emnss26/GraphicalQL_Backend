@@ -4,94 +4,88 @@ const APS_CLIENT_ID = process.env.APS_CLIENT_ID;
 const APS_CLIENT_SECRET = process.env.APS_CLIENT_SECRET;
 const APS_CALLBACK_URL = process.env.APS_CALLBACK_URL;
 
-
-/**
- * Validates required Autodesk Platform Services credentials.
- * Throws an error if any are missing from the environment.
- */
-function validateAPSConfig() {
+function validateApsConfig() {
   if (!APS_CLIENT_ID || !APS_CLIENT_SECRET || !APS_CALLBACK_URL) {
-    throw new Error("Missing APS_CLIENT_ID, APS_CLIENT_SECRET, or APS_CALLBACK_URL in environment");
+    throw new Error(
+      "Missing APS_CLIENT_ID, APS_CLIENT_SECRET, or APS_CALLBACK_URL in environment"
+    );
   }
 }
 
-/**
- * Exchanges a three-legged authorization code for an APS access token.
- * @param {string} code - Authorization code from the OAuth callback
- * @returns {Promise<Object>} - Token response object
- */
+function buildBasicAuthHeader(clientId, clientSecret) {
+  const credentials = `${clientId}:${clientSecret}`;
+  const encoded = Buffer.from(credentials).toString("base64");
+  return `Basic ${encoded}`;
+}
 
-const GetAPSThreeLeggedToken = async (code) => {
-  validateAPSConfig();
+/**
+ * Exchanges a three-legged authorization code for an APS token.
+ * @param {string} code Authorization code from the OAuth callback.
+ * @returns {Promise<Object>} Token response.
+ */
+async function GetAPSThreeLeggedToken(code) {
+  validateApsConfig();
 
   try {
-    const credentials = `${APS_CLIENT_ID}:${APS_CLIENT_SECRET}`;
-    const encodedCredentials = Buffer.from(credentials).toString("base64");
-
-    const requestData = {
+    const body = new URLSearchParams({
       grant_type: "authorization_code",
-      code: code,
-      redirect_uri: `${APS_CALLBACK_URL}`,
-      scope: "data:read data:write data:create account:read viewables:read bucket:read",
-    };
-
-    const headers = {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-      Authorization: `Basic ${encodedCredentials}`,
-    };
+      code: String(code || ""),
+      redirect_uri: String(APS_CALLBACK_URL || ""),
+      scope:
+        "data:read data:write data:create account:read viewables:read bucket:read",
+    });
 
     const { data } = await axios.post(
       "https://developer.api.autodesk.com/authentication/v2/token",
-      new URLSearchParams(requestData).toString(),
-      { headers }
+      body.toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+          Authorization: buildBasicAuthHeader(APS_CLIENT_ID, APS_CLIENT_SECRET),
+        },
+      }
     );
 
-    //console.log("Three-legged token data:", data);
-    
     return data;
   } catch (error) {
-    console.error("Error in GetAPSThreeLeggedToken:", error.message);
+    const details = error?.response?.data || error?.message;
+    console.error("GetAPSThreeLeggedToken failed:", details);
     throw new Error("Failed to get APS three-legged token");
   }
-};
+}
 
 /**
  * Retrieves a two-legged (client credentials) APS token.
- * @returns {Promise<string>} - Access token string
+ * @returns {Promise<string>} Access token.
  */
+async function GetAPSToken() {
+  validateApsConfig();
 
-const GetAPSToken = async () => {
-    validateAPSConfig();
+  try {
+    const body = new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "data:read data:create data:write",
+    });
 
-    try {
-        const credentials = `${APS_CLIENT_ID}:${APS_CLIENT_SECRET}`;
-        const encodedCredentials = Buffer.from(credentials).toString("base64");
+    const { data } = await axios.post(
+      "https://developer.api.autodesk.com/authentication/v2/token",
+      body.toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+          Authorization: buildBasicAuthHeader(APS_CLIENT_ID, APS_CLIENT_SECRET),
+        },
+      }
+    );
 
-        const requestData = {
-            grant_type: "client_credentials",
-            scope: "data:read data:create data:write",
-        };
-
-        const headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Accept: "application/json",
-            Authorization: `Basic ${encodedCredentials}`,
-        };
-
-        const { data } = await axios.post(
-            "https://developer.api.autodesk.com/authentication/v2/token",
-            new URLSearchParams(requestData).toString(),
-            { headers }
-        );
-        return data.access_token;
-    } catch (error) {
-        console.error("Error in GetAPSToken:", error.message);
-        throw new Error("Failed to get APS token");
-    }
+    return data.access_token;
+  } catch (error) {
+    const details = error?.response?.data || error?.message;
+    console.error("GetAPSToken failed:", details);
+    throw new Error("Failed to get APS token");
+  }
 }
 
-module.exports = {
-    GetAPSThreeLeggedToken,
-    GetAPSToken,
-    };
+module.exports = { GetAPSThreeLeggedToken, GetAPSToken };

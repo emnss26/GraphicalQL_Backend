@@ -1,46 +1,67 @@
-const axios = require("axios");
+const axios = require("axios")
+
+const DM_BASE_URL = "https://developer.api.autodesk.com/data/v1"
 
 /**
- * Recursively fetches ALL files from a folder and its subfolders, handling pagination.
+ * Fetches all items from a folder (including subfolders) and returns only file items.
+ * - Handles pagination per folder
+ * - Traverses subfolders recursively
+ *
+ * @param {string} token APS access token
+ * @param {string} projectId Data Management project id (usually "b.{guid}")
+ * @param {string} folderId Folder id
+ * @returns {Promise<Array>} List of DM "items" (files), with include=versions
  */
 async function fetchFolderContents(token, projectId, folderId) {
-  try {
-    let allItemsInThisFolder = [];
-    // URL inicial
-    let nextUrl = `https://developer.api.autodesk.com/data/v1/projects/${projectId}/folders/${folderId}/contents?include=versions`;
+  if (!token) throw new Error("Missing APS access token")
+  if (!projectId) throw new Error("Missing projectId")
+  if (!folderId) throw new Error("Missing folderId")
 
-    // 1. Paginación Horizontal: Obtener todo el contenido de ESTA carpeta
+  const headers = { Authorization: `Bearer ${token}` }
+  const results = []
+
+  const fetchFolderPage = async (url) => {
+    const { data } = await axios.get(url, { headers })
+    const items = Array.isArray(data?.data) ? data.data : []
+    const nextUrl = data?.links?.next?.href || null
+    return { items, nextUrl }
+  }
+
+  const walkFolder = async (currentFolderId) => {
+    let nextUrl = `${DM_BASE_URL}/projects/${encodeURIComponent(projectId)}/folders/${encodeURIComponent(
+      currentFolderId
+    )}/contents?include=versions`
+
+    const folderItems = []
+
     while (nextUrl) {
-      const { data: response } = await axios.get(nextUrl, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      const items = response.data || [];
-      allItemsInThisFolder = allItemsInThisFolder.concat(items);
-
-      // La API REST devuelve 'links.next.href' si hay más páginas
-      nextUrl = response.links?.next?.href || null;
+      const page = await fetchFolderPage(nextUrl)
+      folderItems.push(...page.items)
+      nextUrl = page.nextUrl
     }
 
-    // 2. Procesamiento y Recursión Vertical (Subcarpetas)
-    let allFiles = [];
+    for (const item of folderItems) {
+      if (item?.type === "folders") {
+        await walkFolder(item.id)
+        continue
+      }
 
-    for (const item of allItemsInThisFolder) {
-      if (item.type === "folders") {
-        // Llamada recursiva para entrar en la subcarpeta
-        const subFiles = await fetchFolderContents(token, projectId, item.id);
-        allFiles = allFiles.concat(subFiles);
-      } else if (item.type === "items") {
-        allFiles.push(item);
+      if (item?.type === "items") {
+        results.push(item)
       }
     }
+  }
 
-    return allFiles;
-
+  try {
+    await walkFolder(folderId)
+    return results
   } catch (error) {
-    console.error(`Error processing folder ${folderId}:`, error.response?.data || error.message);
-    throw error;
+    console.error(
+      `Error fetching folder contents (folderId=${folderId}):`,
+      error?.response?.data || error?.message || error
+    )
+    throw error
   }
 }
 
-module.exports = { fetchFolderContents };
+module.exports = { fetchFolderContents }

@@ -1,77 +1,69 @@
-const axios = require("axios");
+const axios = require("axios")
+
+const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
 
 /**
- * Fetches element groups (models) associated with a given AEC project.
- * Handles pagination to retrieve all models.
+ * Fetch element groups (models) for a given AEC project.
+ * Uses cursor-based pagination until no cursor is returned.
  *
- * @param {string} token - APS access token.
- * @param {string} projectId - AEC project ID.
- * @returns {Promise<Array>} - List of models (element groups) with metadata.
+ * @param {string} token APS access token
+ * @param {string} projectId AEC project ID
+ * @returns {Promise<Array>} List of element groups (models)
  */
 async function fetchModels(token, projectId) {
-  let allResults = [];
-  let nextCursor = null;
-  let hasMore = true;
+  if (!token) throw new Error("Missing APS access token")
+  if (!projectId) throw new Error("Missing projectId")
 
-  try {
-    while (hasMore) {
-      const { data } = await axios({
-        method: "POST",
-        url: "https://developer.api.autodesk.com/aec/graphql",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        data: {
-          query: `
-            query GetElementGroupsByProject($projectId: ID!, $cursor: String) {
-              elementGroupsByProject(projectId: $projectId, pagination: { cursor: $cursor }) {
-                pagination {
-                  cursor
-                  pageSize
-                }
-                results {
-                  name
-                  id
-                  alternativeIdentifiers {
-                    fileUrn
-                    fileVersionUrn
-                  }
-                }
-              }
-            }
-          `,
-          // Aquí pasamos el cursor dinámicamente
-          variables: { 
-            projectId, 
-            cursor: nextCursor 
-          },
-        },
-      });
-
-      // Extraer datos de la respuesta actual
-      const responseData = data?.data?.elementGroupsByProject;
-      const results = responseData?.results || [];
-      
-      // Acumular resultados
-      allResults = [...allResults, ...results];
-
-      // Actualizar el cursor para la siguiente vuelta
-      nextCursor = responseData?.pagination?.cursor;
-
-      // Si no hay cursor, hemos terminado
-      if (!nextCursor) {
-        hasMore = false;
+  const query = `
+    query GetElementGroupsByProject($projectId: ID!, $cursor: String) {
+      elementGroupsByProject(projectId: $projectId, pagination: { cursor: $cursor }) {
+        pagination { cursor pageSize }
+        results {
+          name
+          id
+          alternativeIdentifiers {
+            fileUrn
+            fileVersionUrn
+          }
+        }
       }
     }
+  `
 
-    console.log(`Total Models fetched: ${allResults.length}`);
-    return allResults;
+  const results = []
+  let cursor = null
 
+  try {
+    while (true) {
+      const { data } = await axios.post(
+        AEC_GRAPHQL_URL,
+        { query, variables: { projectId, cursor } },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      )
+
+      const gqlErrors = data?.errors
+      if (Array.isArray(gqlErrors) && gqlErrors.length) {
+        throw new Error(gqlErrors[0]?.message || "AEC GraphQL error")
+      }
+
+      const payload = data?.data?.elementGroupsByProject
+      const page = payload?.results || []
+      if (page.length) results.push(...page)
+
+      cursor = payload?.pagination?.cursor || null
+      if (!cursor) break
+    }
+
+    return results
   } catch (error) {
-    console.error("Error fetching AEC models:", error.response?.data || error.message);
-    throw error;
+    console.error("Error fetching AEC models:", error?.response?.data || error?.message || error)
+    throw error
   }
 }
 
-module.exports = { fetchModels };
+module.exports = { fetchModels }

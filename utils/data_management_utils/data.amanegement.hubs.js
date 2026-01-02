@@ -2,8 +2,8 @@ const axios = require("axios");
 
 /**
  * Fetches available Autodesk hubs for the authenticated user.
- * @param {string} token - APS access token
- * @returns {Promise<Array>} - List of hubs
+ * @param {string} token APS access token.
+ * @returns {Promise<Array>} List of hubs.
  */
 async function fetchHubs(token) {
   if (!token) {
@@ -13,20 +13,15 @@ async function fetchHubs(token) {
   try {
     const { data } = await axios.get(
       "https://developer.api.autodesk.com/project/v1/hubs",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    return data.data || [];
+    return Array.isArray(data?.data) ? data.data : [];
   } catch (error) {
-    console.error("Error fetching hubs:", error.message);
+    const details = error?.response?.data || error?.message;
+    console.error("fetchHubs failed:", details);
     throw new Error("Failed to retrieve hubs");
   }
 }
 
-module.exports = {
-  fetchHubs,
-};
+module.exports = { fetchHubs };

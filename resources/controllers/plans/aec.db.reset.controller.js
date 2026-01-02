@@ -1,30 +1,56 @@
-const knex = require('knex')(require('../../../knexfile').development);
+const knex = require("knex")(require("../../../knexfile").development)
 
-// DELETE /aec/:projectId/reset  -> limpia SOLO ese proyecto
+/**
+ * DELETE /aec/:projectId/reset
+ * Clears only the working data for a single project.
+ */
 const ResetProjectData = async (req, res, next) => {
-  const { projectId } = req.params;
-  try {
-    await knex('model_selection').where({ project_id: projectId }).del();
-    await knex('plan_folder_selection').where({ project_id: projectId }).del();
-    await knex('user_plans').where({ project_id: projectId }).del();
-    res.json({ success: true, message: `Proyecto ${projectId} limpiado`, data: null, error: null });
-  } catch (e) {
-    e.code = e.code || 'ResetError';
-    return next(e);
-  }
-};
+  const { projectId } = req.params
 
-// DELETE /aec/_all/reset -> borra TODO (usa con cuidado)
+  if (!projectId) {
+    const err = new Error("Project ID is required")
+    err.status = 400
+    err.code = "ValidationError"
+    return next(err)
+  }
+
+  try {
+    await knex("model_selection").where({ project_id: projectId }).del()
+    await knex("plan_folder_selection").where({ project_id: projectId }).del()
+    await knex("user_plans").where({ project_id: projectId }).del()
+
+    return res.json({
+      success: true,
+      message: `Project ${projectId} cleared`,
+      data: null,
+      error: null,
+    })
+  } catch (err) {
+    err.code = err.code || "ResetError"
+    return next(err)
+  }
+}
+
+/**
+ * DELETE /aec/_all/reset
+ * Clears ALL working DB tables (use with care).
+ */
 const ResetAllData = async (_req, res, next) => {
   try {
-    await knex('model_selection').del();
-    await knex('plan_folder_selection').del();
-    await knex('user_plans').del();
-    res.json({ success: true, message: 'Toda la BD de trabajo fue limpiada', data: null, error: null });
-  } catch (e) {
-    e.code = e.code || 'ResetError';
-    return next(e);
-  }
-};
+    await knex("model_selection").del()
+    await knex("plan_folder_selection").del()
+    await knex("user_plans").del()
 
-module.exports = { ResetProjectData, ResetAllData };
+    return res.json({
+      success: true,
+      message: "All working DB tables were cleared",
+      data: null,
+      error: null,
+    })
+  } catch (err) {
+    err.code = err.code || "ResetError"
+    return next(err)
+  }
+}
+
+module.exports = { ResetProjectData, ResetAllData }

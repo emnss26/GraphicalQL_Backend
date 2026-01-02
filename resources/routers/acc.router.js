@@ -1,13 +1,13 @@
-const express = require('express');
-const router = express.Router();
-const checkSession = require('../../middlewares/checkSession');
+const express = require("express")
 
-const { GetProjects } = require('../controllers/acc/acc.projects.controller');
+const checkSession = require("../../middlewares/checkSession")
+const { GetProjects } = require("../controllers/acc/acc.projects.controller")
 
-// Session middleware
-router.use(checkSession);
+const router = express.Router()
 
-// Routes
-router.get('/acc-projects', GetProjects);
+// Protect all ACC routes with session validation/refresh.
+router.use(checkSession)
 
-module.exports = router;
+router.get("/acc-projects", GetProjects)
+
+module.exports = router

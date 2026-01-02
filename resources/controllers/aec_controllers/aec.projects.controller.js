@@ -1,117 +1,104 @@
-const axios = require("axios");
-const { fetchProjects } = require("../../libs/aec/aec.get.project.js");
-const { fetchHubs } = require("../../libs/aec/aec.get.hubs.js");
-const { fetchAccProjects } = require("../../libs/acc/acc.get.projects.js");
+const axios = require("axios")
+const { fetchProjects } = require("../../libs/aec/aec.get.project.js")
+const { fetchHubs } = require("../../libs/aec/aec.get.hubs.js")
+const { fetchAccProjects } = require("../../libs/acc/acc.get.projects.js")
 
-const HUBNAME = process.env.HUBNAME;
+const HUBNAME = process.env.HUBNAME
 
 /**
- * Función auxiliar para obtener el ID del Hub compatible con Data Management (REST).
- * El ID de GraphQL (urn:adsk.ace...) no funciona en los endpoints de Data Management (b.xxxx).
+ * Returns the Data Management (REST) hub id ("b.xxxx") for a given hub name.
+ * Note: The AEC GraphQL hub id ("urn:adsk.ace:...") is not compatible with DM/ACC REST endpoints.
  */
-async function getDmHubId(token, hubName) {
+async function getDataManagementHubId(token, hubName) {
   try {
     const { data } = await axios.get("https://developer.api.autodesk.com/project/v1/hubs", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    // Buscamos el hub por nombre (ej: "Abitat Constructora")
-    const hub = data.data.find(h => h.attributes.name === hubName);
-    return hub ? hub.id : null; // Retorna "b.c8b0..."
-  } catch (error) {
-    console.warn("Could not fetch DM Hub ID via REST:", error.message);
-    return null;
+      headers: { Authorization: `Bearer ${token}` },
+    })
+
+    const hub = (data?.data || []).find((h) => h?.attributes?.name === hubName)
+    return hub?.id || null
+  } catch (err) {
+    console.warn("Could not fetch DM Hub ID via REST:", err?.message || err)
+    return null
   }
 }
 
 const GetAECProjects = async (req, res, next) => {
   try {
-    const token = req.cookies?.access_token;
+    const token = req.cookies?.access_token
 
     if (!token) {
-      const error = new Error("Authorization token is required");
-      error.status = 401;
-      error.code = "Unauthorized";
-      return next(error);
+      const err = new Error("Authorization token is required")
+      err.status = 401
+      err.code = "Unauthorized"
+      return next(err)
     }
 
-    // --- PASO 1: OBTENER LOS IDs DE HUB CORRECTOS PARA CADA API ---
-    
-    // A. Hub ID para AEC (GraphQL)
-    const aecHubs = await fetchHubs(token);
-    const matchedAecHub = aecHubs.find(hub => hub.name === HUBNAME);
-    
+    // 1) Resolve hub IDs for each API (AEC GraphQL vs DM/ACC REST)
+    const aecHubs = await fetchHubs(token)
+    const matchedAecHub = (aecHubs || []).find((hub) => hub?.name === HUBNAME)
+
     if (!matchedAecHub) {
-      const error = new Error(`AEC Hub not found: ${HUBNAME}`);
-      error.status = 404;
-      return next(error);
-    }
-    const aecHubId = matchedAecHub.id; // Formato: "urn:adsk.ace:prod.scope..."
-
-    // B. Hub ID para ACC/Data Management (REST)
-    // No podemos "adivinar" este ID desde el de AEC, hay que pedirlo.
-    const dmHubId = await getDmHubId(token, HUBNAME); // Formato: "b.xxxx-xxxx..."
-
-    console.log(`IDs Resolved: AEC=${aecHubId} | DM=${dmHubId || "Not Found"}`);
-
-    // --- PASO 2: FETCH PARALELO CON IDs DIFERENCIADOS ---
-    
-    const promises = [
-        fetchProjects(token, aecHubId) // Siempre traemos la lista AEC
-    ];
-
-    // Solo intentamos traer la lista de ACC si tenemos el ID correcto (el que empieza con b.)
-    if (dmHubId) {
-        promises.push(fetchAccProjects(token, dmHubId));
-    } else {
-        console.warn("Skipping ACC Status check because DM Hub ID was not found.");
-        promises.push(Promise.resolve([])); // Array vacío si falla el hub de ACC
+      const err = new Error(`AEC Hub not found: ${HUBNAME}`)
+      err.status = 404
+      return next(err)
     }
 
-    const [aecProjects, dmProjects] = await Promise.all(promises);
+    const aecHubId = matchedAecHub.id // "urn:adsk.ace:..."
+    const dmHubId = await getDataManagementHubId(token, HUBNAME) // "b.xxxx"
 
-    // --- PASO 3: CREAR LISTA BLANCA DE PROYECTOS ACTIVOS ---
-    
-    const activeDmProjectIds = new Set();
+    console.log(`IDs Resolved: AEC=${aecHubId} | DM=${dmHubId || "Not Found"}`)
 
-    if (dmProjects.length > 0) {
-        dmProjects.forEach(dmProj => {
-            // Verificamos el status en los atributos de la API REST
-            const status = (dmProj.attributes?.status || dmProj.attributes?.extension?.data?.projectStatus || "active").toLowerCase();
-            
-            // FILTRO: Solo guardamos el ID si está ACTIVO
-            if (status === 'active') {
-                activeDmProjectIds.add(dmProj.id); // El ID aquí es "b.project_uuid"
-            }
-        });
+    // 2) Fetch projects in parallel (AEC always; ACC only if we have dmHubId)
+    const [aecProjects, dmProjects] = await Promise.all([
+      fetchProjects(token, aecHubId),
+      dmHubId ? fetchAccProjects(token, dmHubId) : Promise.resolve([]),
+    ])
+
+    if (!dmHubId) {
+      console.warn("Skipping ACC status check because DM Hub ID was not found.")
     }
 
-    // --- PASO 4: FILTRADO FINAL (MATCH) ---
-    
-    const finalProjects = aecProjects.filter(aecProj => {
-        // Si la lista de DM vino vacía (error de API o Hub), devolvemos todo por seguridad (o nada, según prefieras)
-        if (activeDmProjectIds.size === 0) return true;
+    // 3) Build whitelist of ACTIVE ACC projects
+    const activeDmProjectIds = new Set()
 
-        // "alternativeIdentifiers.dataManagementAPIProjectId" contiene el ID "b.project_uuid"
-        const linkedId = aecProj.alternativeIdentifiers?.dataManagementAPIProjectId;
+    ;(dmProjects || []).forEach((dmProj) => {
+      const statusRaw =
+        dmProj?.attributes?.status ??
+        dmProj?.attributes?.extension?.data?.projectStatus ??
+        "active"
 
-        // ¿Existe este ID en la lista de proyectos activos de ACC?
-        return linkedId && activeDmProjectIds.has(linkedId);
-    });
+      const status = String(statusRaw).toLowerCase()
 
-    console.log(`Filtering Result: AEC Total=${aecProjects.length}, Active ACC=${activeDmProjectIds.size} => Final=${finalProjects.length}`);
+      if (status === "active") {
+        activeDmProjectIds.add(dmProj.id) // "b.project_uuid"
+      }
+    })
+
+    // 4) Final filter (match AEC projects to active ACC projects)
+    const finalProjects = (aecProjects || []).filter((aecProj) => {
+      // If DM list is empty (hub missing or API issue), return all AEC projects as a safe fallback
+      if (activeDmProjectIds.size === 0) return true
+
+      const linkedId = aecProj?.alternativeIdentifiers?.dataManagementAPIProjectId
+      return Boolean(linkedId && activeDmProjectIds.has(linkedId))
+    })
+
+    console.log(
+      `Filtering Result: AEC Total=${(aecProjects || []).length}, Active ACC=${activeDmProjectIds.size} => Final=${finalProjects.length}`
+    )
 
     return res.status(200).json({
       success: true,
       message: "Active Projects retrieved successfully",
       data: { aecProjects: finalProjects },
-      error: null
-    });
-
-  } catch (error) {
-    console.error("GetAECProjects Error:", error);
-    error.code = error.code || "AECProjectsFetchFailed";
-    return next(error);
+      error: null,
+    })
+  } catch (err) {
+    console.error("GetAECProjects Error:", err)
+    err.code = err.code || "AECProjectsFetchFailed"
+    return next(err)
   }
-};
+}
 
-module.exports = { GetAECProjects };
+module.exports = { GetAECProjects }

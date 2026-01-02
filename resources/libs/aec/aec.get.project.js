@@ -1,47 +1,58 @@
-const axios = require("axios");
+const axios = require("axios")
+
+const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
 
 /**
- * Fetches all AEC projects from a specified hub via Autodesk GraphQL API.
+ * Fetch AEC projects for a given hub via Autodesk AEC GraphQL.
  *
- * @param {string} token - APS access token.
- * @param {string} hubId - Hub identifier (ACC account ID).
- * @returns {Promise<Array>} - List of projects in the hub.
+ * Note: This query returns a pagination cursor, but this implementation mirrors
+ * the current behavior (single request) to avoid changing functionality.
+ *
+ * @param {string} token APS access token
+ * @param {string} hubId AEC hub ID (urn:adsk.ace:...)
+ * @returns {Promise<Array>} Projects list
  */
 async function fetchProjects(token, hubId) {
-  try {
-    const { data } = await axios({
-      method: "POST",
-      url: "https://developer.api.autodesk.com/aec/graphql",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      data: {
-        query: `
-          query GetProjects($hubId: ID!) {
-            projects(hubId: $hubId) {
-              pagination {
-                cursor
-              }
-              results {
-                id
-                name
-                alternativeIdentifiers {
-                  dataManagementAPIProjectId
-                }
-              }
-            }
-          }
-        `,
-        variables: { hubId },
-      },
-    });
+  if (!token) throw new Error("Missing APS access token")
+  if (!hubId) throw new Error("Missing hubId")
 
-    return data?.data?.projects?.results || [];
+  const query = `
+    query GetProjects($hubId: ID!) {
+      projects(hubId: $hubId) {
+        pagination { cursor }
+        results {
+          id
+          name
+          alternativeIdentifiers {
+            dataManagementAPIProjectId
+          }
+        }
+      }
+    }
+  `
+
+  try {
+    const { data } = await axios.post(
+      AEC_GRAPHQL_URL,
+      { query, variables: { hubId } },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    )
+
+    const gqlErrors = data?.errors
+    if (Array.isArray(gqlErrors) && gqlErrors.length) {
+      throw new Error(gqlErrors[0]?.message || "AEC GraphQL error")
+    }
+
+    return data?.data?.projects?.results || []
   } catch (error) {
-    console.error("Error fetching AEC projects:", error.response?.data || error.message);
-    throw error;
+    console.error("Error fetching AEC projects:", error?.response?.data || error?.message || error)
+    throw error
   }
 }
 
-module.exports = { fetchProjects };
+module.exports = { fetchProjects }
