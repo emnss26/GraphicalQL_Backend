@@ -471,9 +471,9 @@ const matchPlans = async (req, res, next) => {
 
     const normalizeStatus = (val) => {
       const v = String(val || "").toUpperCase()
-      if (v === "A" || v === "APPROVED" || v.includes("APROB")) return "APPROVED"
-      if (v === "R" || v === "REJECTED" || v.includes("RECHAZ")) return "REJECTED"
-      if (v === "OPEN" || v === "IN_REVIEW" || v.includes("REVISI")) return "IN_REVIEW"
+      if (v === "A" || v === "APPROVED" || v.includes("Aprobado")) return "APPROVED"
+      if (v === "R" || v === "REJECTED" || v.includes("Rechazado")) return "REJECTED"
+      if (v === "OPEN" || v === "IN_REVIEW" || v.includes("En revisión")) return "IN_REVIEW"
       return v || ""
     }
 
