@@ -8,10 +8,12 @@ const port = normalizePort(process.env.PORT || config.port || "3000");
 app.set("port", port);
 
 const server = http.createServer(app);
+const TIMEOUT_MS = 15 * 60 * 1000;
 
-server.timeout = 600000; 
-server.keepAliveTimeout = 600000; 
-server.headersTimeout = 600005; 
+server.timeout = TIMEOUT_MS;
+server.keepAliveTimeout = TIMEOUT_MS;
+server.headersTimeout = TIMEOUT_MS + 1000; 
+server.requestTimeout = TIMEOUT_MS; 
 
 server.listen(port);
 server.on("error", onError);
