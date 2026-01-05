@@ -1,7 +1,6 @@
 const knex = require("knex")(require("../../../knexfile").development);
 const axios = require("axios");
 
-// --- IMPORTS ---
 const { ensureTables } = require("../../../utils/db/ensureTables");
 const { fetchSheets } = require("../../libs/aec/aec.get.model.sheets.js");
 const { fetchFolderContents } = require("../../libs/data_management/data.management.get.folder.content.js");
@@ -9,7 +8,6 @@ const { fetchVersionApprovalStatuses } = require("../../libs/acc/acc.get.version
 const { fetchReviewById } = require("../../libs/acc/acc.get.review.by.id.js");
 const { fetchProjectSheets } = require("../../libs/acc/acc.get.project.sheets.js");
 
-/* ----------------------------- Helpers Comunes ----------------------------- */
 const normDate = (v) => {
   if (!v) return null;
   const d = new Date(v);
@@ -17,7 +15,13 @@ const normDate = (v) => {
   return d.toISOString().slice(0, 10);
 };
 
-const normalizeText = (v) => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+const normalizeText = (v) =>
+  String(v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+
 const stripPdfExtension = (v) => String(v || "").trim().replace(/\.pdf$/i, "");
 
 const keyifyNumber = (v) => {
@@ -32,13 +36,17 @@ const keyifyName = (v) => {
   return s.replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 };
 
-/* -------------------- AEC Helpers ------------------- */
+
 function getPropValue(propsObj, propName) {
   try {
     const arr = propsObj?.results || [];
-    const hit = arr.find(p => String(p?.name || "").toLowerCase() === String(propName).toLowerCase());
+    const hit = arr.find(
+      (p) => String(p?.name || "").toLowerCase() === String(propName).toLowerCase()
+    );
     return hit?.value ?? null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function dmyToISO(s) {
@@ -60,6 +68,7 @@ function extractSheetFields(s) {
   const rev = getPropValue(props, "Current Revision");
   const revDateRaw = getPropValue(props, "Current Revision Date");
   const revDate = revDateRaw ? dmyToISO(revDateRaw) || normDate(revDateRaw) : null;
+
   return {
     number: number ? String(number).trim() : "",
     name: name ? String(name).trim() : "",
@@ -68,7 +77,7 @@ function extractSheetFields(s) {
   };
 }
 
-/* ---------------- Helpers Docs ---------------- */
+
 function normalizeFileBase(displayName) {
   const s = normalizeText(stripPdfExtension(displayName));
   return s.replace(/\.[A-Z0-9]+$/, "").trim();
@@ -98,13 +107,14 @@ const toGuid = (pid) => {
   return s.replace(/^b\./i, "");
 };
 
-/* --------------------------------- CRUD --------------------------------- */
 const listPlans = async (req, res, next) => {
   try {
     await ensureTables(knex);
     const rows = await knex("user_plans").where({ project_id: req.params.projectId }).orderBy("id", "asc");
     return res.json({ success: true, message: "Planes listados", data: { plans: Array.isArray(rows) ? rows : [] }, error: null });
-  } catch (err) { err.code = err.code || "PlanListError"; return next(err); }
+  } catch (err) {
+    err.code = err.code || "PlanListError"; return next(err);
+  }
 };
 
 const importPlans = async (req, res, next) => {
@@ -112,9 +122,11 @@ const importPlans = async (req, res, next) => {
     await ensureTables(knex);
     const projectId = req.params.projectId;
     const { plans = [] } = req.body || {};
+
     if (!Array.isArray(plans) || plans.length === 0) {
       const err = new Error("Payload vacío"); err.status = 400; err.code = "ValidationError"; return next(err);
     }
+
     const looksLikeNumberToken = (s) => /^[a-zA-Z0-9_.-]+$/.test(String(s || "").trim());
     const normalized = plans.map((p) => {
       let name = String(p.name || "").trim();
@@ -124,6 +136,7 @@ const importPlans = async (req, res, next) => {
       if (nameIsToken && numberLooksLikeName) { const tmp = name; name = number; number = tmp; }
       return { name, number, plannedGenDate: p.plannedGenDate, plannedReviewDate: p.plannedReviewDate, plannedIssueDate: p.plannedIssueDate };
     });
+
     await knex.transaction(async (trx) => {
       for (const p of normalized) {
         const row = {
@@ -187,9 +200,7 @@ const deletePlan = async (req, res, next) => {
   } catch (err) { err.code = err.code || "PlanDeleteError"; return next(err); }
 };
 
-/* -------------------------------------------------------------------------- */
-/* MATCH PLANS (OPTIMIZADO V3 - PRODUCCIÓN)                                  */
-/* -------------------------------------------------------------------------- */
+
 const matchPlans = async (req, res, next) => {
   console.time("MatchProcess");
   try {
@@ -206,7 +217,7 @@ const matchPlans = async (req, res, next) => {
     const bProjectId = toBProject(altProjectId);
     const accProjectGuid = toGuid(altProjectId);
 
-    // Helper Local con Retry (para fetchItemVersions)
+
     async function fetchWithRetryLocal(url, retries = 3, delay = 500) {
         try {
             const { data } = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -220,7 +231,6 @@ const matchPlans = async (req, res, next) => {
         }
     }
 
-    // --- 1. CARGA MASIVA DE INDICES ---
     console.log("--> Iniciando carga de índices...");
 
     const pModelIds = knex("model_selection").where({ project_id: projectId }).select("model_id").then(rows => rows.map(r => r.model_id));
@@ -230,7 +240,6 @@ const matchPlans = async (req, res, next) => {
 
     const [modelIds, plans, docsFiles, accSheets] = await Promise.all([pModelIds, pPlans, pDocs, pAccSheets]);
 
-    // Indexar Model Sheets
     const byNumber = new Map();
     const byName = new Map();
     for (const mid of modelIds) {
@@ -244,7 +253,6 @@ const matchPlans = async (req, res, next) => {
         } catch {}
     }
 
-    // Indexar Docs
     const docsV1Map = new Map();
     const docsIdMap = new Map();
     for (const f of docsFiles || []) {
@@ -257,13 +265,10 @@ const matchPlans = async (req, res, next) => {
         if (kNam) { if(v1 && !docsV1Map.has(kNam)) docsV1Map.set(kNam, v1); if(!docsIdMap.has(kNam)) docsIdMap.set(kNam, f.id); }
     }
 
-    // Indexar ACC Sheets
     const accSheetsMap = new Map();
     for (const sh of accSheets) {
         if (sh.isCurrent) accSheetsMap.set(keyifyNumber(sh.number), sh);
     }
-
-    // --- 2. LÓGICA DE PROCESAMIENTO ---
 
     const fetchItemVersions = async (itemId) => {
         const url = `https://developer.api.autodesk.com/data/v1/projects/${encodeURIComponent(bProjectId)}/items/${encodeURIComponent(itemId)}/versions`;
@@ -285,6 +290,7 @@ const matchPlans = async (req, res, next) => {
         let result = { everApproved: false, firstReviewDate: null, latestReviewStatus: null, latestReviewDate: null, lastVersionNumber: null, lastVersionDate: null };
         
         const versions = await fetchItemVersions(itemId);
+        
         const ascending = versions.sort((a, b) => (a.attributes?.versionNumber || 0) - (b.attributes?.versionNumber || 0));
 
         if (ascending.length > 0) {
@@ -295,13 +301,10 @@ const matchPlans = async (req, res, next) => {
 
         for (const ver of ascending) {
             try {
-                // Fetch de estado
-                const statuses = await fetchVersionApprovalStatuses(token, altProjectId, ver.id);
                 
-                // [CRÍTICO] Si la versión está vacía (bug de copia), la saltamos para NO borrar el estado anterior
+                const statuses = await fetchVersionApprovalStatuses(token, altProjectId, ver.id);
                 if (!statuses.length) continue;
 
-                // [CRÍTICO] Ordenamos por secuencia para obtener el estado real
                 const sorted = statuses.sort((a, b) => {
                     const seqA = a.review?.sequenceId || 0;
                     const seqB = b.review?.sequenceId || 0;
@@ -309,14 +312,12 @@ const matchPlans = async (req, res, next) => {
                     return new Date(a.createdAt) - new Date(b.createdAt);
                 });
 
-                // Barrido 'everApproved'
                 for (const st of sorted) {
                     if (normalizeStatus(st.approvalStatus?.value || st.approvalStatus?.label) === "APPROVED") {
                         result.everApproved = true;
                     }
                 }
 
-                // Estado final de esta versión
                 const final = sorted[sorted.length - 1];
                 const statusStr = normalizeStatus(final.approvalStatus?.value || final.approvalStatus?.label);
                 
@@ -334,7 +335,7 @@ const matchPlans = async (req, res, next) => {
 
                 if (rDate && !result.firstReviewDate) result.firstReviewDate = rDate;
                 
-                // Solo actualizamos latest si encontramos algo válido
+
                 if (statusStr) {
                     result.latestReviewStatus = statusStr;
                     result.latestReviewDate = rDate;
@@ -345,7 +346,7 @@ const matchPlans = async (req, res, next) => {
         return result;
     };
 
-    // --- 3. EJECUCIÓN POR LOTES ---
+
     const BATCH_SIZE = 15; 
     const SLEEP_MS = 300; 
 

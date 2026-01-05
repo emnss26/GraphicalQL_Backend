@@ -32,7 +32,7 @@ async function GetAPSThreeLeggedToken(code) {
       code: String(code || ""),
       redirect_uri: String(APS_CALLBACK_URL || ""),
       scope:
-        "data:read data:write data:create account:read viewables:read bucket:read",
+        "account:read data:read data:write data:create viewables:read bucket:read",
     });
 
     const { data } = await axios.post(
