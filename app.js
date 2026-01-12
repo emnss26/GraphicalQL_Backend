@@ -43,6 +43,7 @@ app.use(
     credentials: true,
   })
 );
+
 app.options(/.*/, cors());
 
 app.use((req, res, next) => {
@@ -61,10 +62,15 @@ if (!isProduction) {
   app.use(morgan("dev"));
 }
 
-app.use("/auth", require("./resources/routers/auth.router"));
-app.use("/aec", require("./resources/routers/aec.router"));
-app.use("/acc", require("./resources/routers/acc.router"));
-app.use("/plans", require("./resources/routers/plans.router"));
+const authRouter = require("./resources/routers/auth.router");
+const aecRouter = require("./resources/routers/aec.router");
+const accRouter = require("./resources/routers/acc.router");
+const plansRouter = require("./resources/routers/plans.router");
+
+app.use(["/auth", "/ControlPlanos/auth"], authRouter);
+app.use(["/aec", "/ControlPlanos/aec"], aecRouter);
+app.use(["/acc", "/ControlPlanos/acc"], accRouter);
+app.use(["/plans", "/ControlPlanos/plans"], plansRouter);
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -74,9 +80,16 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.use(express.static(path.join(__dirname, "public")));
 
-app.get("*", (req, res) => {
+app.use(express.static(path.join(__dirname, "public")));
+app.use("/ControlPlanos", express.static(path.join(__dirname, "public")));
+
+
+app.get(["/ControlPlanos/*", "/ControlPlanos"], (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.get(/.*$/, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
