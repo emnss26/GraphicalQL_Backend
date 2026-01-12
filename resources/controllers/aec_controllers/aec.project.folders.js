@@ -14,6 +14,8 @@ const GetAECProjectFolders = async (req, res, next) => {
   try {
     const folderTree = await fetchFolderTree(token, projectId)
 
+    console.log("folders", folderTree)
+
     return res.status(200).json({
       success: true,
       message: "Folder tree retrieved successfully",

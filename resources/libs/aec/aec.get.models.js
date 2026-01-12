@@ -14,6 +14,9 @@ async function fetchModels(token, projectId) {
   if (!token) throw new Error("Missing APS access token")
   if (!projectId) throw new Error("Missing projectId")
 
+    console.log("projectid", projectId)
+    console.log("Token", token)
+
   const query = `
     query GetElementGroupsByProject($projectId: ID!, $cursor: String) {
       elementGroupsByProject(projectId: $projectId, pagination: { cursor: $cursor }) {
