@@ -4,6 +4,8 @@ const GetAECProjectFolders = async (req, res, next) => {
   const { projectId } = req.params
   const token = req.cookies?.access_token
 
+  console.log("Inciando get folders ", projectId)
+  
   if (!token) {
     const err = new Error("Authorization token is required")
     err.status = 401
@@ -13,6 +15,8 @@ const GetAECProjectFolders = async (req, res, next) => {
 
   try {
     const folderTree = await fetchFolderTree(token, projectId)
+
+    console.log("folders", folderTree)
 
     return res.status(200).json({
       success: true,

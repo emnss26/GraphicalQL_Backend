@@ -67,12 +67,14 @@ const authRouter = require("./resources/routers/auth.router");
 const aecRouter = require("./resources/routers/aec.router");
 const accRouter = require("./resources/routers/acc.router");
 const plansRouter = require("./resources/routers/plans.router");
+const datamanagementRouter = require("./resources/routers/dm.router")
 
 // Rutas API: Soportan tanto la raíz como la subcarpeta
 app.use(["/auth", "/ControlPlanos/auth"], authRouter);
 app.use(["/aec", "/ControlPlanos/aec"], aecRouter);
 app.use(["/acc", "/ControlPlanos/acc"], accRouter);
 app.use(["/plans", "/ControlPlanos/plans"], plansRouter);
+app.use(["/dm", "/ControlPlanos/dm"], datamanagementRouter)
 
 app.get("/health", (_req, res) => {
   res.json({

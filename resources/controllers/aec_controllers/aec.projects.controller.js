@@ -84,9 +84,7 @@ const GetAECProjects = async (req, res, next) => {
       return Boolean(linkedId && activeDmProjectIds.has(linkedId))
     })
 
-    console.log(
-      `Filtering Result: AEC Total=${(aecProjects || []).length}, Active ACC=${activeDmProjectIds.size} => Final=${finalProjects.length}`
-    )
+    console.log("Projects", finalProjects)
 
     return res.status(200).json({
       success: true,

@@ -3,7 +3,7 @@ const { fetchModels } = require("../../libs/aec/aec.get.models.js")
 const GetAECModels = async (req, res, next) => {
   const { projectId } = req.params
   const token = req.cookies?.access_token
-
+  
   if (!token) {
     const err = new Error("Authorization token is required")
     err.status = 401
@@ -13,6 +13,8 @@ const GetAECModels = async (req, res, next) => {
 
   try {
     const models = await fetchModels(token, projectId)
+
+    console.log("Modelos", models)
 
     return res.status(200).json({
       success: true,
