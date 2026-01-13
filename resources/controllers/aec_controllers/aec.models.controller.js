@@ -3,7 +3,7 @@ const { fetchModels } = require("../../libs/aec/aec.get.models.js")
 const GetAECModels = async (req, res, next) => {
   const { projectId } = req.params
   const token = req.cookies?.access_token
-
+  
   if (!token) {
     const err = new Error("Authorization token is required")
     err.status = 401

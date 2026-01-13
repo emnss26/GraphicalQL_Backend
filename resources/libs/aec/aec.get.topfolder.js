@@ -4,10 +4,6 @@ const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
 
 /**
  * Fetch top-level folders for an AEC project (GraphQL).
- *
- * @param {string} token APS access token
- * @param {string} projectId AEC project ID
- * @returns {Promise<Array>} Top-level folders
  */
 async function fetchTopFoldersGraphql(token, projectId) {
   if (!token) throw new Error("Missing APS access token")
