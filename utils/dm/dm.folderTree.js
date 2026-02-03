@@ -1,4 +1,3 @@
-// utils/dm/dm.folderTree.js
 const { fetchTopFoldersRest } = require("../../resources/libs/dm/dm.get.topfolder.js");
 const { fetchSubFoldersRest } = require("../../resources/libs/dm/dm.get.subfolder.js");
 
@@ -21,7 +20,7 @@ function createWorkQueue(concurrency) {
       running++;
       Promise.resolve()
         .then(fn)
-        .catch(() => {}) // el error se maneja dentro del task
+        .catch(() => {}) 
         .finally(() => {
           running--;
           pump();
@@ -89,19 +88,16 @@ function createRateLimiter({ maxConcurrent = 4, minTimeMs = 80 }) {
 async function fetchFolderTree(token, projectId) {
   const dmId = projectId;
 
-  // Ajustables por env sin tocar código
-  const MAX_CONCURRENCY = Number(process.env.DM_TREE_CONCURRENCY || 4); // requests concurrentes reales
-  const MIN_TIME_MS = Number(process.env.DM_TREE_MIN_TIME_MS || 80);    // spacing entre requests
+  const MAX_CONCURRENCY = Number(process.env.DM_TREE_CONCURRENCY || 4);
+  const MIN_TIME_MS = Number(process.env.DM_TREE_MIN_TIME_MS || 80);    
   const RETRIES = Number(process.env.DM_TREE_RETRIES || 6);
 
   const limiter = createRateLimiter({ maxConcurrent: MAX_CONCURRENCY, minTimeMs: MIN_TIME_MS });
   const work = createWorkQueue(MAX_CONCURRENCY);
 
-  // Cachea children por folderId (y comparte el mismo Promise) => evita llamadas duplicadas
-  const childrenPromiseCache = new Map(); // folderId -> Promise<childrenInfo[]>
+  const childrenPromiseCache = new Map(); 
 
-  // Nodos únicos por id (si un id aparece 2 veces, no duplicas llamadas ni reconstrucción)
-  const nodeById = new Map(); // id -> nodeRef
+  const nodeById = new Map(); 
 
   const getNode = (info) => {
     if (nodeById.has(info.id)) return nodeById.get(info.id);
@@ -126,13 +122,11 @@ async function fetchFolderTree(token, projectId) {
 
         if (!isRetryable || attempt === RETRIES - 1) throw error;
 
-        // APS recomienda respetar Retry-After cuando viene en 429 :contentReference[oaicite:2]{index=2}
         const ra = Number(error.response?.headers?.["retry-after"]);
         let waitMs = (!Number.isNaN(ra) && ra > 0)
           ? Math.ceil(ra * 1000)
           : 1000 * Math.pow(2, attempt);
 
-        // jitter pequeño para evitar “trombonazo” cuando varios workers reintentan a la vez
         waitMs += Math.floor(Math.random() * 250);
 
         limiter.pause(waitMs);
@@ -154,12 +148,10 @@ async function fetchFolderTree(token, projectId) {
     return p;
   };
 
-  // 1) Roots
   const topInfos = await retry(() => fetchTopFoldersRest(token, dmId), "topFolders");
   const roots = (topInfos || []).map(getNode);
 
-  // 2) Expand con cola global (sin multiplicación por recursión)
-  const expanded = new Set(); // folderId ya expandido
+  const expanded = new Set(); 
 
   const expand = (node) => {
     work.push(async () => {

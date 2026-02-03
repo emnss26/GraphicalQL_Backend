@@ -56,8 +56,6 @@ async function ensureUserPlansColumns(knex) {
     t.integer("has_approval_flow").notNullable().defaultTo(0);
   });
 
-  // NOTE: `revision_status` is intentionally NOT created/maintained anymore (dead field cleanup).
-
   await addColumn("docs_last_modified", (t) => {
     t.date("docs_last_modified");
   });

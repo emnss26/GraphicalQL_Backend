@@ -1,58 +1,62 @@
-const axios = require("axios")
+const axios = require("axios");
+const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql";
 
-const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
-
-/**
- * Fetch AEC projects for a given hub via Autodesk AEC GraphQL.
- *
- * Note: This query returns a pagination cursor, but this implementation mirrors
- * the current behavior (single request) to avoid changing functionality.
- *
- * @param {string} token APS access token
- * @param {string} hubId AEC hub ID (urn:adsk.ace:...)
- * @returns {Promise<Array>} Projects list
- */
 async function fetchProjects(token, hubId) {
-  if (!token) throw new Error("Missing APS access token")
-  if (!hubId) throw new Error("Missing hubId")
+  if (!token) throw new Error("Missing APS access token");
+  if (!hubId) throw new Error("Missing hubId");
 
-  const query = `
-    query GetProjects($hubId: ID!) {
-      projects(hubId: $hubId) {
-        pagination { cursor }
-        results {
-          id
-          name
-          alternativeIdentifiers {
-            dataManagementAPIProjectId
-          }
-        }
-      }
+  const baseFields = `
+    pagination { cursor }
+    results {
+      id
+      name
+      alternativeIdentifiers { dataManagementAPIProjectId }
     }
-  `
+  `;
 
-  try {
+  const queryFirst = `
+    query GetProjects($hubId: ID!) {
+      projects(hubId: $hubId) { ${baseFields} }
+    }
+  `;
+
+  const queryNext = `
+    query GetProjects($hubId: ID!, $cursor: String!) {
+      projects(hubId: $hubId, pagination: { cursor: $cursor }) { ${baseFields} }
+    }
+  `;
+
+  const all = [];
+  const seenCursors = new Set();
+  let cursor = null;
+
+  while (true) {
+    const query = cursor ? queryNext : queryFirst;
+    const variables = cursor ? { hubId, cursor } : { hubId };
+
     const { data } = await axios.post(
       AEC_GRAPHQL_URL,
-      { query, variables: { hubId } },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    )
+      { query, variables },
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+    );
 
-    const gqlErrors = data?.errors
+    const gqlErrors = data?.errors;
     if (Array.isArray(gqlErrors) && gqlErrors.length) {
-      throw new Error(gqlErrors[0]?.message || "AEC GraphQL error")
+      throw new Error(gqlErrors[0]?.message || "AEC GraphQL error");
     }
 
-    return data?.data?.projects?.results || []
-  } catch (error) {
-    console.error("Error fetching AEC projects:", error?.response?.data || error?.message || error)
-    throw error
+    const page = data?.data?.projects;
+    const results = page?.results || [];
+    all.push(...results);
+
+    const nextCursor = page?.pagination?.cursor;
+    if (!nextCursor) break;
+    if (seenCursors.has(nextCursor)) break; 
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
   }
+
+  return all;
 }
 
-module.exports = { fetchProjects }
+module.exports = { fetchProjects };

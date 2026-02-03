@@ -27,11 +27,9 @@ const GetUserProfile = async (req, res, next) => {
       id: data.userId || data.uid || null,
       email: data.emailId || data.email || null,
       name: name || null,
-      // Keep this only if the frontend truly needs it.
       raw: data,
     }
 
-    // Prevent caching sensitive profile data
     res.set("Cache-Control", "no-store")
 
     return res.status(200).json({

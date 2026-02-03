@@ -8,7 +8,6 @@ function normalizeAccProjectId(projectId) {
   return s.replace(/^b\./i, "");
 }
 
-// --- FUNCIÓN DE FETCH CON RETRY (Vital para listas grandes) ---
 async function fetchWithRetry(url, token, retries = 3, delay = 1000) {
   try {
     const { data } = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -27,7 +26,7 @@ async function fetchVersionApprovalStatuses(token, projectId, versionId) {
   const url = `https://developer.api.autodesk.com/construction/reviews/v1/projects/${accProjectId}/versions/${encodeURIComponent(versionId)}/approval-statuses`;
 
   try {
-    // Usamos fetchWithRetry en lugar de axios directo
+   
     const data = await fetchWithRetry(url, token);
     return Array.isArray(data?.results) ? data.results : [];
   } catch (err) {
@@ -40,7 +39,7 @@ function summarizeApprovalStatuses(statuses = []) {
   if (!Array.isArray(statuses) || statuses.length === 0) {
     return { status: "NOT_IN_REVIEW", reviewId: null, stepName: null, updatedAt: null };
   }
-  // Ordenar por fecha descendente
+
   const sorted = [...statuses].sort((a, b) => {
     const aT = a.attributes?.updatedAt || a.attributes?.createdAt || "";
     const bT = b.attributes?.updatedAt || b.attributes?.createdAt || "";

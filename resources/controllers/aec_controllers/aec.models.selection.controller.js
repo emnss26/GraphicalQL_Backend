@@ -9,7 +9,7 @@ const setSelectedModels = async (req, res, next) => {
   const { modelIds } = req.body
 
   try {
-    // Keep behavior: wipe previous selection and insert the new one.
+    
     await knex("model_selection").where({ project_id: projectId }).del()
 
     const ids = Array.isArray(modelIds) ? modelIds : []

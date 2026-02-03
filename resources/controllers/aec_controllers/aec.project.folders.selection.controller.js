@@ -12,7 +12,6 @@ const SetSelectedFolder = async (req, res, next) => {
   }
 
   try {
-    // One folder selection per project (replace previous selection)
     await knex("plan_folder_selection").where({ project_id: projectId }).del()
 
     await knex("plan_folder_selection").insert({

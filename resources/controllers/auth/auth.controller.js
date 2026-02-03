@@ -12,8 +12,8 @@ const buildCookieOptions = () => {
 
   return {
     httpOnly: true,
-    secure: isProduction, // HTTPS required in production
-    sameSite: isProduction ? "None" : "Lax", // allow cross-site cookies in prod
+    secure: isProduction, 
+    sameSite: isProduction ? "None" : "Lax", 
     path: "/",
   }
 }
@@ -42,7 +42,7 @@ const GetThreeLegged = async (req, res, next) => {
 
     res.cookie("access_token", token.access_token, {
       ...cookieOptions,
-      maxAge: 60 * 60 * 1000, // 1h
+      maxAge: 60 * 60 * 1000, 
     })
 
     res.cookie("refresh_token", token.refresh_token, cookieOptions)
@@ -83,8 +83,6 @@ const PostLogout = async (req, res, next) => {
   try {
     const cookieOptions = buildCookieOptions()
 
-    // Keep behavior compatible: in production this clears secure/None cookies;
-    // in dev it clears Lax/non-secure cookies as well.
     res.clearCookie("access_token", cookieOptions)
     res.clearCookie("refresh_token", cookieOptions)
 

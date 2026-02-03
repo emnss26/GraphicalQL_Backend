@@ -44,7 +44,6 @@ app.use(
   })
 );
 
-// En Express 4, "*" funciona perfectamente para OPTIONS
 app.options("*", cors());
 
 app.use((req, res, next) => {
@@ -69,7 +68,6 @@ const accRouter = require("./resources/routers/acc.router");
 const plansRouter = require("./resources/routers/plans.router");
 const datamanagementRouter = require("./resources/routers/dm.router")
 
-// Rutas API: Soportan tanto la raíz como la subcarpeta
 app.use(["/auth", "/ControlPlanos/auth"], authRouter);
 app.use(["/aec", "/ControlPlanos/aec"], aecRouter);
 app.use(["/acc", "/ControlPlanos/acc"], accRouter);
@@ -84,18 +82,10 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// --- ARCHIVOS ESTÁTICOS ---
-
-// 1. Servir en raíz
 app.use(express.static(path.join(__dirname, "public")));
 
-// 2. Servir en subcarpeta (Vital para IIS)
 app.use("/ControlPlanos", express.static(path.join(__dirname, "public")));
 
-// --- FALLBACK PARA REACT ROUTER ---
-
-// En Express 4 podemos usar "*" (asterisco) y NO FALLA.
-// Esto captura cualquier ruta que no sea API o archivo estático.
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });

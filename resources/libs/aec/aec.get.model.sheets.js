@@ -3,24 +3,29 @@ const axios = require("axios")
 const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
 
 /**
- * Fetch elements from an AEC element group using a property filter (GraphQL).
- *
- * @param {string} token APS access token
- * @param {string} elementGroupId AEC element group id (model id)
- * @param {string} propertyFilter GraphQL filter query (e.g. "property.name.category==Sheets")
- * @returns {Promise<Array>} GraphQL results array
+ * Fetch ALL elements (Sheets) handling pagination.
  */
 async function fetchSheets(token, elementGroupId, propertyFilter) {
   if (!token) throw new Error("Missing APS access token")
   if (!elementGroupId) throw new Error("Missing elementGroupId")
   if (!propertyFilter) throw new Error("Missing propertyFilter")
 
+  let allResults = [];
+  let cursor = null;
+  let hasMore = true;
+
+
   const query = `
-    query GetElementsFromCategory($elementGroupId: ID!, $propertyFilter: String!) {
+    query GetElementsFromCategory($elementGroupId: ID!, $propertyFilter: String!, $cursor: String) {
       elementsByElementGroup(
         elementGroupId: $elementGroupId,
         filter: { query: $propertyFilter }
+        pagination: { cursor: $cursor, limit: 100 }
       ) {
+        pagination {
+          cursor
+          pageSize
+        }
         results {
           id
           name
@@ -36,29 +41,54 @@ async function fetchSheets(token, elementGroupId, propertyFilter) {
         }
       }
     }
-  `
+  `;
 
   try {
-    const { data } = await axios.post(
-      AEC_GRAPHQL_URL,
-      { query, variables: { elementGroupId, propertyFilter } },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    )
 
-    const gqlErrors = data?.errors
-    if (Array.isArray(gqlErrors) && gqlErrors.length) {
-      throw new Error(gqlErrors[0]?.message || "AEC GraphQL error")
+    while (hasMore) {
+      const { data } = await axios.post(
+        AEC_GRAPHQL_URL,
+        { 
+            query, 
+            variables: { 
+                elementGroupId, 
+                propertyFilter,
+                cursor: cursor 
+            } 
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const gqlErrors = data?.errors;
+      if (Array.isArray(gqlErrors) && gqlErrors.length) {
+        console.error("GQL Error:", gqlErrors[0]?.message);
+        throw new Error(gqlErrors[0]?.message || "AEC GraphQL error");
+      }
+
+      const responseData = data?.data?.elementsByElementGroup;
+      const pageResults = responseData?.results || [];
+   
+      allResults = allResults.concat(pageResults);
+
+      const nextCursor = responseData?.pagination?.cursor;
+      
+      if (nextCursor && pageResults.length > 0) {
+          cursor = nextCursor;
+      } else {
+          hasMore = false;
+      }
     }
 
-    return data?.data?.elementsByElementGroup?.results || []
+    return allResults;
+
   } catch (error) {
-    console.error("Error fetching sheets:", error?.response?.data || error?.message || error)
-    throw error
+    console.error("Error fetching sheets:", error?.response?.data || error?.message || error);
+    throw error;
   }
 }
 

@@ -1,8 +1,8 @@
 const { fetchFolderTree } = require("../../../utils/dm/dm.folderTree")
 
 const GetDMProjectFolders = async (req, res, next) => {
-  const { projectId } = req.params; // ID de GraphQL (urn:adsk...)
-  const { dmId } = req.query;       // ID de Data Management (b.xxxx...)
+  const { projectId } = req.params; 
+  const { dmId } = req.query;      
   const token = req.cookies?.access_token;
 
   console.log("ProjetId dmg", dmId)
@@ -14,8 +14,6 @@ const GetDMProjectFolders = async (req, res, next) => {
   }
 
   try {
-    // Priorizamos el dmId que viene del frontend. 
-    // Si no viene, intentamos convertir el projectId (fallback).
     const targetId = dmId ;
 
     console.log(`📂 Fetching Folder Tree via REST for: ${targetId}`);

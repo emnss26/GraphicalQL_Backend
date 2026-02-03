@@ -1,61 +1,91 @@
-const axios = require("axios")
+const axios = require("axios");
 
-/**
- * Normalize an ACC project identifier to a bare UUID.
- * Accepts:
- * - urn:adsk.workspace:prod.project:{uuid}
- * - b.{uuid}
- * - {uuid}
- *
- * @param {string} projectId
- * @returns {string}
- */
 function normalizeAccProjectId(projectId) {
-  const raw = String(projectId || "").trim()
-
+  const raw = String(projectId || "").trim();
   if (raw.startsWith("urn:adsk.workspace:prod.project:")) {
-    return raw.split(":").pop()
+    return raw.split(":").pop();
   }
-
-  return raw.replace(/^b\./i, "")
+  return raw.replace(/^b\./i, "");
 }
 
 /**
- * Fetch all sheets (drawings) from ACC Sheets Index using pagination.
- *
- * @param {string} token APS access token
- * @param {string} projectId ACC project id (any supported format)
- * @param {number} limit Page size (default 200)
- * @returns {Promise<Array>}
+ * Helper interno para manejar la paginación de cualquier endpoint de ACC (Sheets o Collections).
  */
-async function fetchProjectSheets(token, projectId, limit = 200) {
-  const pid = normalizeAccProjectId(projectId)
-  const results = []
+async function fetchPaginatedData(token, initialUrl) {
+  let url = initialUrl;
+  const results = [];
 
-  let url = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/sheets?limit=${limit}`
+  try {
+    while (url) {
+      const { data } = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
 
-  while (url) {
-    const { data } = await axios.get(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-    })
+      if (Array.isArray(data?.results)) {
+        results.push(...data.results);
+      }
 
-    if (Array.isArray(data?.results)) results.push(...data.results)
+      const nextUrl = data?.pagination?.nextUrl;
+      if (!nextUrl) break;
 
-    const nextUrl = data?.pagination?.nextUrl
-    if (!nextUrl) break
+      url = nextUrl.startsWith("http")
+        ? nextUrl
+        : `https://developer.api.autodesk.com${nextUrl}`;
+    }
+  } catch (err) {
+    console.warn(`⚠️ Warning fetching page: ${err.message}`);
+  }
+  return results;
+}
 
-    url = nextUrl.startsWith("http")
-      ? nextUrl
-      : `https://developer.api.autodesk.com${nextUrl}`
+/**
+ * Fetch ALL sheets (drawings) from ACC.
+ */
+async function fetchProjectSheets(token, projectId, limit = 200, queryParams = "") {
+  const pid = normalizeAccProjectId(projectId);
+
+  if (queryParams && queryParams.trim() !== "") {
+      const url = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/sheets?currentOnly=true&limit=${limit}${queryParams}`;
+      return await fetchPaginatedData(token, url);
   }
 
-  return results
+  const allSheets = [];
+
+  const globalUrl = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/sheets?currentOnly=true&limit=${limit}`;
+  const globalSheets = await fetchPaginatedData(token, globalUrl);
+  allSheets.push(...globalSheets);
+
+  try {
+    
+    const colUrl = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/collections?limit=100`;
+    const collections = await fetchPaginatedData(token, colUrl);
+
+    if (collections.length > 0) {
+    
+        const promises = collections.map(col => {
+            const sheetUrl = `https://developer.api.autodesk.com/construction/sheets/v1/projects/${pid}/sheets?currentOnly=true&limit=${limit}&collectionId=${col.id}`;
+            return fetchPaginatedData(token, sheetUrl);
+        });
+
+        const collectionsResults = await Promise.all(promises);
+        
+        collectionsResults.forEach(sheets => {
+            if (sheets.length) allSheets.push(...sheets);
+        });
+    }
+  } catch (e) {
+      console.warn("⚠️ Error auto-scanning collections (ignoring):", e.message);
+  }
+
+  const uniqueSheets = Array.from(new Map(allSheets.map(item => [item.id, item])).values());
+
+  return uniqueSheets;
 }
 
 module.exports = {
   fetchProjectSheets,
   normalizeAccProjectId,
-}
+};

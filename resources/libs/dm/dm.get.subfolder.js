@@ -1,8 +1,6 @@
-// resources/libs/dm/dm.get.subfolder.js
 const axios = require("axios");
 const https = require("https");
 
-// keepAlive reduce overhead de miles de requests
 const http = axios.create({
   timeout: 30000,
   httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 50 }),
@@ -31,7 +29,6 @@ async function fetchSubFoldersRest(token, projectId, folderId) {
         }))
       );
 
-      // JSON:API links.next suele venir aquí
       const next = data.links?.next;
       url =
         typeof next === "string"

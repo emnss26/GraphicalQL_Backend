@@ -26,7 +26,6 @@ const {
 
 const router = express.Router()
 
-// Protect all AEC routes with session validation/refresh.
 router.use(checkSession)
 
 // Project data

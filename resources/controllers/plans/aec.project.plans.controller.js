@@ -2,10 +2,11 @@ const knex = require("knex")(require("../../../knexfile").development);
 const axios = require("axios");
 
 const { ensureTables } = require("../../../utils/db/ensureTables");
-const { fetchSheets } = require("../../libs/aec/aec.get.model.sheets.js");
+const { fetchSheets } = require("../../libs/aec/aec.get.model.sheets.js"); // GraphQL Sheets
 const { fetchFolderContents } = require("../../libs/data_management/data.management.get.folder.content.js");
 const { fetchVersionApprovalStatuses } = require("../../libs/acc/acc.get.version.approvals.js");
 const { fetchReviewById } = require("../../libs/acc/acc.get.review.by.id.js");
+
 const { fetchProjectSheets } = require("../../libs/acc/acc.get.project.sheets.js");
 
 const normDate = (v) => {
@@ -16,18 +17,14 @@ const normDate = (v) => {
 };
 
 const normalizeText = (v) =>
-  String(v || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .trim();
+  String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
 
 const stripPdfExtension = (v) => String(v || "").trim().replace(/\.pdf$/i, "");
 
 const keyifyNumber = (v) => {
   const s = normalizeText(stripPdfExtension(v));
   if (!s) return "";
-  return s.replace(/\s+/g, "").replace(/[^A-Z0-9-]/g, "");
+  return s.replace(/[^A-Z0-9]/g, ""); 
 };
 
 const keyifyName = (v) => {
@@ -36,15 +33,17 @@ const keyifyName = (v) => {
   return s.replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 };
 
-
-function getPropValue(propsObj, propName) {
+function getPropValue(propsObj, propNames) {
   try {
     const arr = propsObj?.results || [];
-    const hit = arr.find(
-      (p) => String(p?.name || "").toLowerCase() === String(propName).toLowerCase()
-    );
+    if (!arr.length) return null;
+    const targets = Array.isArray(propNames) ? propNames : [propNames];
+    const hit = arr.find((p) => {
+      const pName = String(p?.name || "").trim().toLowerCase();
+      return targets.some(t => pName === String(t).toLowerCase());
+    });
     return hit?.value ?? null;
-  } catch {
+  } catch (e) {
     return null;
   }
 }
@@ -63,20 +62,19 @@ function dmyToISO(s) {
 
 function extractSheetFields(s) {
   const props = s?.properties || {};
-  const number = getPropValue(props, "Sheet Number");
-  const name = getPropValue(props, "Sheet Name");
-  const rev = getPropValue(props, "Current Revision");
-  const revDateRaw = getPropValue(props, "Current Revision Date");
-  const revDate = revDateRaw ? dmyToISO(revDateRaw) || normDate(revDateRaw) : null;
+  const number = getPropValue(props, ["Sheet Number", "Number", "Número de plano"]);
+  const name = getPropValue(props, ["Sheet Name", "Name", "Nombre de plano", "Title"]);
+  const rev = getPropValue(props, ["Current Revision", "Revision"]);
+  const revDateRaw = getPropValue(props, ["Current Revision Date", "Revision Date"]);
+  const revDate = revDateRaw ? (dmyToISO(revDateRaw) || normDate(revDateRaw)) : null;
 
   return {
     number: number ? String(number).trim() : "",
-    name: name ? String(name).trim() : "",
+    name: name ? String(name).trim() : (s.name || ""),
     currentRevision: rev !== undefined && rev !== null ? String(rev) : "",
     currentRevisionDate: revDate,
   };
 }
-
 
 function normalizeFileBase(displayName) {
   const s = normalizeText(stripPdfExtension(displayName));
@@ -112,9 +110,7 @@ const listPlans = async (req, res, next) => {
     await ensureTables(knex);
     const rows = await knex("user_plans").where({ project_id: req.params.projectId }).orderBy("id", "asc");
     return res.json({ success: true, message: "Planes listados", data: { plans: Array.isArray(rows) ? rows : [] }, error: null });
-  } catch (err) {
-    err.code = err.code || "PlanListError"; return next(err);
-  }
+  } catch (err) { err.code = err.code || "PlanListError"; return next(err); }
 };
 
 const importPlans = async (req, res, next) => {
@@ -156,39 +152,35 @@ const importPlans = async (req, res, next) => {
     const rows = await knex("user_plans").where({ project_id: projectId }).orderBy("id", "asc");
     return res.json({ success: true, message: "Planes importados", data: { plans: rows }, error: null });
   } catch (err) { err.code = err.code || "PlanImportError"; return next(err); }
-};
+}
 
 const updatePlan = async (req, res, next) => {
   try {
     await ensureTables(knex);
     const { projectId, id } = { projectId: req.params.projectId, id: Number(req.params.id) };
+    const patch = {}; 
     const validators = {
-      name: (v) => String(v || "").trim(), number: (v) => { const s = String(v || "").trim(); return s === "" ? null : s; },
-      plannedGenDate: normDate, actualGenDate: normDate, plannedReviewDate: normDate, actualReviewDate: normDate, plannedIssueDate: normDate,
-      actualIssueDate: normDate, currentRevision: (v) => String(v || "").trim(), currentRevisionDate: normDate, status: (v) => String(v || "").trim(),
-      docsVersion: (v) => (v === "" || v === null ? null : Number(v)), docsVersionDate: normDate, lastReviewDate: normDate, lastReviewStatus: (v) => String(v || "").trim(),
-      issueUpdatedAt: normDate, issueVersionSetName: (v) => String(v || "").trim(), hasApprovalFlow: (v) => (v === true || v === "true" || v === 1 ? 1 : 0),
+        name: (v) => String(v || "").trim(), number: (v) => String(v || "").trim() || null,
+        plannedGenDate: normDate, actualGenDate: normDate, plannedReviewDate: normDate, actualReviewDate: normDate, plannedIssueDate: normDate,
+        actualIssueDate: normDate, currentRevision: (v) => String(v || "").trim(), currentRevisionDate: normDate, status: (v) => String(v || "").trim(),
+        docsVersion: (v) => (v === "" || v === null ? null : Number(v)), docsVersionDate: normDate, lastReviewDate: normDate, lastReviewStatus: (v) => String(v || "").trim(),
+        issueUpdatedAt: normDate, issueVersionSetName: (v) => String(v || "").trim(), hasApprovalFlow: (v) => (v === true || v === "true" || v === 1 ? 1 : 0),
     };
     const fieldToDb = {
-      plannedGenDate: "planned_gen_date", actualGenDate: "actual_gen_date", plannedReviewDate: "planned_review_date", actualReviewDate: "actual_review_date",
-      plannedIssueDate: "planned_issue_date", actualIssueDate: "actual_issue_date", currentRevision: "current_revision", currentRevisionDate: "current_revision_date",
-      docsVersion: "docs_version_number", docsVersionDate: "docs_last_modified", lastReviewDate: "latest_review_date", lastReviewStatus: "latest_review_status",
-      issueUpdatedAt: "sheet_updated_at", issueVersionSetName: "sheet_version_set", hasApprovalFlow: "has_approval_flow",
+        plannedGenDate: "planned_gen_date", actualGenDate: "actual_gen_date", plannedReviewDate: "planned_review_date", actualReviewDate: "actual_review_date",
+        plannedIssueDate: "planned_issue_date", actualIssueDate: "actual_issue_date", currentRevision: "current_revision", currentRevisionDate: "current_revision_date",
+        docsVersion: "docs_version_number", docsVersionDate: "docs_last_modified", lastReviewDate: "latest_review_date", lastReviewStatus: "latest_review_status",
+        issueUpdatedAt: "sheet_updated_at", issueVersionSetName: "sheet_version_set", hasApprovalFlow: "has_approval_flow",
     };
-    const patch = {};
     for (const k of Object.keys(req.body || {})) {
-      if (!(k in validators)) continue;
-      const dbKey = fieldToDb[k] || k;
-      patch[dbKey] = validators[k](req.body[k]);
+        if (k in validators) patch[fieldToDb[k] || k] = validators[k](req.body[k]);
     }
-    if (Object.keys(patch).length === 0) { const err = new Error("Nada que actualizar"); err.status = 400; err.code = "ValidationError"; return next(err); }
-    const exists = await knex("user_plans").where({ id, project_id: projectId }).first();
-    if (!exists) { const err = new Error("Plan no encontrado"); err.status = 404; err.code = "NotFound"; return next(err); }
+    if (Object.keys(patch).length === 0) return res.status(400).json({error: "Nada que actualizar"});
     patch.updated_at = knex.fn.now();
     await knex("user_plans").where({ id }).update(patch);
     const updated = await knex("user_plans").where({ id }).first();
     return res.json({ success: true, message: "Plan actualizado", data: { plan: updated }, error: null });
-  } catch (err) { err.code = err.code || "PlanUpdateError"; return next(err); }
+  } catch (err) { return next(err); }
 };
 
 const deletePlan = async (req, res, next) => {
@@ -200,8 +192,8 @@ const deletePlan = async (req, res, next) => {
   } catch (err) { err.code = err.code || "PlanDeleteError"; return next(err); }
 };
 
-
-const matchPlans = async (req, res, next) => {
+// --- MATCH PLANS 
+  const matchPlans = async (req, res, next) => {
   console.time("MatchProcess");
   try {
     const projectId = req.params.projectId;
@@ -209,14 +201,13 @@ const matchPlans = async (req, res, next) => {
     const altProjectId = req.headers["x-alt-project-id"];
     const selectedFolderId = req.headers["selected-folder-id"];
 
-    if (!token) { const err = new Error("Unauthorized"); err.status = 401; return next(err); }
-    if (!altProjectId || !selectedFolderId) { const err = new Error("Faltan headers de selección."); err.status = 400; return next(err); }
+    if (!token || !altProjectId || !selectedFolderId) { 
+        const err = new Error("Faltan credenciales o headers."); err.status = 400; return next(err); 
+    }
 
     await ensureTables(knex);
-
     const bProjectId = toBProject(altProjectId);
     const accProjectGuid = toGuid(altProjectId);
-
 
     async function fetchWithRetryLocal(url, retries = 3, delay = 500) {
         try {
@@ -231,17 +222,24 @@ const matchPlans = async (req, res, next) => {
         }
     }
 
-    console.log("--> Iniciando carga de índices...");
-
     const pModelIds = knex("model_selection").where({ project_id: projectId }).select("model_id").then(rows => rows.map(r => r.model_id));
+ 
     const pPlans = knex("user_plans").where({ project_id: projectId });
+    
     const pDocs = fetchFolderContents(token, altProjectId, selectedFolderId);
-    const pAccSheets = fetchProjectSheets(token, accProjectGuid, 200).catch(() => []);
+
+    const pAccSheets = fetchProjectSheets(token, accProjectGuid, 200).catch((e) => {
+        console.error("Error fetching ACC sheets:", e.message);
+        return [];
+    });
 
     const [modelIds, plans, docsFiles, accSheets] = await Promise.all([pModelIds, pPlans, pDocs, pAccSheets]);
 
+    //console.log(`📊 Total ACC Sheets Recibidos: ${accSheets.length}`);
+
     const byNumber = new Map();
     const byName = new Map();
+
     for (const mid of modelIds) {
         try {
             const ss = await fetchSheets(token, mid, "property.name.category==Sheets");
@@ -282,15 +280,14 @@ const matchPlans = async (req, res, next) => {
         const v = String(val || "").toUpperCase().trim();
         if (["APPROVED", "APROBADO", "A"].includes(v) || v.includes("APROB")) return "APPROVED";
         if (["REJECTED", "RECHAZADO", "REJECT", "R"].includes(v) || v.includes("RECHAZ")) return "REJECTED";
-        if (["OPEN", "IN_REVIEW", "EN REVISIÓN", "EN REVISION"].includes(v)) return "IN_REVIEW";
+        if (["OPEN", "IN_REVIEW", "EN REVISIÓN"].includes(v)) return "IN_REVIEW";
         return v || "";
     };
 
-    const analyzeApprovalFlow = async (itemId, reviewCache) => {
+    const reviewCache = new Map();
+    const analyzeApprovalFlow = async (itemId) => {
         let result = { everApproved: false, firstReviewDate: null, latestReviewStatus: null, latestReviewDate: null, lastVersionNumber: null, lastVersionDate: null };
-        
         const versions = await fetchItemVersions(itemId);
-        
         const ascending = versions.sort((a, b) => (a.attributes?.versionNumber || 0) - (b.attributes?.versionNumber || 0));
 
         if (ascending.length > 0) {
@@ -301,16 +298,10 @@ const matchPlans = async (req, res, next) => {
 
         for (const ver of ascending) {
             try {
-                
                 const statuses = await fetchVersionApprovalStatuses(token, altProjectId, ver.id);
                 if (!statuses.length) continue;
-
-                const sorted = statuses.sort((a, b) => {
-                    const seqA = a.review?.sequenceId || 0;
-                    const seqB = b.review?.sequenceId || 0;
-                    if (seqA !== seqB) return seqA - seqB; 
-                    return new Date(a.createdAt) - new Date(b.createdAt);
-                });
+                
+                const sorted = statuses.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
                 for (const st of sorted) {
                     if (normalizeStatus(st.approvalStatus?.value || st.approvalStatus?.label) === "APPROVED") {
@@ -334,25 +325,19 @@ const matchPlans = async (req, res, next) => {
                 }
 
                 if (rDate && !result.firstReviewDate) result.firstReviewDate = rDate;
-                
-
                 if (statusStr) {
                     result.latestReviewStatus = statusStr;
                     result.latestReviewDate = rDate;
                 }
-
             } catch (e) { /* continue */ }
         }
         return result;
     };
 
-
     const BATCH_SIZE = 15; 
     const SLEEP_MS = 300; 
-
     const patches = [];
     const details = [];
-    const reviewCache = new Map();
 
     const processPlan = async (p) => {
         const kNum = keyifyNumber(p.number);
@@ -363,15 +348,18 @@ const matchPlans = async (req, res, next) => {
         const itemId = (kNum && docsIdMap.get(kNum)) || (kName && docsIdMap.get(kName)) || null;
         const sheetHit = (kNum && accSheetsMap.get(kNum)) || null;
 
-        const app = itemId ? await analyzeApprovalFlow(itemId, reviewCache) : null;
+        const app = itemId ? await analyzeApprovalFlow(itemId) : null;
 
         const patch = {};
+        
+        // Data del Modelo (Revit)
         if (modelHit) {
             if (modelHit.currentRevision) patch.current_revision = modelHit.currentRevision;
             if (modelHit.currentRevisionDate) patch.current_revision_date = modelHit.currentRevisionDate;
         }
-        if (v1Date) patch.actual_gen_date = v1Date;
         
+        if (v1Date) patch.actual_gen_date = v1Date;
+     
         if (app) {
             if (app.lastVersionNumber) patch.docs_version_number = app.lastVersionNumber;
             if (app.lastVersionDate) patch.docs_last_modified = normDate(app.lastVersionDate);
@@ -389,27 +377,21 @@ const matchPlans = async (req, res, next) => {
 
         if (Object.keys(patch).length > 0) {
             patch.updated_at = knex.fn.now();
-            return { id: p.id, patch, details: { id: p.id, key: kNum, ...app } };
+            return { id: p.id, patch, details: { id: p.id, key: kNum } };
         }
         return null;
     };
 
-    console.log(`--> Procesando ${plans.length} planos en lotes de ${BATCH_SIZE}...`);
-
     for (let i = 0; i < plans.length; i += BATCH_SIZE) {
         const batch = plans.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(batch.map(processPlan)); 
-
         for (const r of results) {
             if (r) {
                 patches.push({ id: r.id, patch: r.patch });
                 details.push(r.details);
             }
         }
-
-        if (i + BATCH_SIZE < plans.length) {
-            await new Promise(r => setTimeout(r, SLEEP_MS));
-        }
+        if (i + BATCH_SIZE < plans.length) await new Promise(r => setTimeout(r, SLEEP_MS));
     }
 
     if (patches.length > 0) {
@@ -424,7 +406,7 @@ const matchPlans = async (req, res, next) => {
     return res.status(200).json({
         success: true,
         message: `Sincronización completada. ${patches.length} planos actualizados.`,
-        data: { matchedPlans: patches.length, details },
+        data: { matchedPlans: patches.length, sheetsFound: accSheets.length },
     });
 
   } catch (err) {
@@ -434,10 +416,4 @@ const matchPlans = async (req, res, next) => {
   }
 };
 
-module.exports = {
-  listPlans,
-  importPlans,
-  updatePlan,
-  deletePlan,
-  matchPlans,
-};
+module.exports = { listPlans, importPlans, updatePlan, deletePlan, matchPlans };

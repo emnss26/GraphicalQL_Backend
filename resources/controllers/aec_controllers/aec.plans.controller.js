@@ -35,7 +35,7 @@ const GetModelSheets = async (req, res, next) => {
   }
 
   try {
-    // 1) Get selected model IDs from DB
+   
     const selectedRows = await knex("model_selection")
       .where({ project_id: projectId })
       .select("model_id")
@@ -49,7 +49,6 @@ const GetModelSheets = async (req, res, next) => {
       return next(err)
     }
 
-    // 2) Fetch sheets from selected models (AEC)
     const sheets = (
       await Promise.all(
         selectedModelIds.map((id) =>
@@ -58,10 +57,8 @@ const GetModelSheets = async (req, res, next) => {
       )
     ).flat()
 
-    // 3) Fetch files from selected folder (Data Management)
     const files = await fetchFolderContents(token, altProjectId, selectedFolderId)
 
-    // 4) Fetch project reviews and index them for fast lookup
     const projectReviews = await GetProjectReviews(token, altProjectId)
     const reviewMap = new Map(projectReviews.map((r) => [r.id, r]))
 
@@ -111,7 +108,6 @@ const GetModelSheets = async (req, res, next) => {
       }
     }
 
-    // 5) Resolve approval status per file (parallel)
     const revisionStatuses = await Promise.all((files || []).map(getApprovalStatusForFile))
 
     return res.status(200).json({
