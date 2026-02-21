@@ -88,4 +88,34 @@ async function GetAPSToken() {
   }
 }
 
-module.exports = { GetAPSThreeLeggedToken, GetAPSToken };
+/**
+ * Retrieves user profile with roles and access levels from ACC for a specific project
+ * @param {string} accessToken - User's 3-legged access token
+ * @param {string} projectId - ACC project ID
+ * @param {string} userId - User's Autodesk ID
+ * @returns {Promise<Object>} User profile with roles and accessLevels
+ */
+async function getACCProjectUser(accessToken, projectId, userId) {
+  try {
+    const response = await axios.get(
+      `https://developer.api.autodesk.com/construction/admin/v1/projects/${projectId}/users/${userId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        params: {
+          fields: "accessLevels,roles,roleIds,status",
+        },
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    const details = error?.response?.data || error?.message;
+    console.error("getACCProjectUser failed:", details);
+    throw new Error("Failed to retrieve user access levels from ACC");
+  }
+}
+
+module.exports = { GetAPSThreeLeggedToken, GetAPSToken, getACCProjectUser };

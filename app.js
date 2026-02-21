@@ -37,22 +37,23 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
+// Cors configuration
 app.use(
   cors({
-    origin: isProduction ? true : config.frontendUrl,
+    origin: config.frontendUrl,
     credentials: true,
   })
 );
 
-app.options("*", cors());
 
 app.use((req, res, next) => {
-  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+  if (["POST", "PUT", "DELETE"].includes(req.method)) {
     const origin = req.headers.origin || req.headers.referer;
-    
-   if (isProduction && origin && !origin.startsWith(config.frontendUrl)) {
-       console.warn(`CSRF Blocked: Origin ${origin} does not match ${config.frontendUrl}`);
-       return res.status(403).json({ success: false, message: "CSRF Protection: Origin not allowed" });
+
+    if (isProduction && origin && !origin.startsWith(config.frontendUrl)) {
+      return res
+        .status(403)
+        .json({ success: false, message: "CSRF Protection: Origin not allowed" });
     }
   }
   next();
@@ -61,6 +62,8 @@ app.use((req, res, next) => {
 if (!isProduction) {
   app.use(morgan("dev"));
 }
+
+app.disable("etag");
 
 const authRouter = require("./resources/routers/auth.router");
 const aecRouter = require("./resources/routers/aec.router");

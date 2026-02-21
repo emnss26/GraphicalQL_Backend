@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken")
 const axios = require("axios")
 const config = require("../config")
+const { verifyAPSToken } = require("../utils/auth_utils/jwt.utils")
 
 async function checkSession(req, res, next) {
   const accessToken = req.cookies?.access_token
@@ -13,16 +14,21 @@ async function checkSession(req, res, next) {
   try {
     // If access token exists and is not about to expire, proceed.
     if (accessToken) {
-      const decoded = jwt.decode(accessToken)
+      try {
+        const decoded = await verifyAPSToken(accessToken)
 
-      if (decoded?.exp) {
-        const now = Math.floor(Date.now() / 1000)
-        const safetyMarginSeconds = 10
+        if (decoded?.exp) {
+          const now = Math.floor(Date.now() / 1000)
+          const safetyMarginSeconds = 10
 
-        if (decoded.exp > now + safetyMarginSeconds) {
-          req.user = decoded
-          return next()
+          if (decoded.exp > now + safetyMarginSeconds) {
+            req.user = decoded
+            return next()
+          }
         }
+      } catch (tokenError) {
+        // Token inválido o expirado, intentar refresh
+        console.log("Access token invalid:", tokenError.message)
       }
     }
 
@@ -62,7 +68,7 @@ async function checkSession(req, res, next) {
       req.cookies.access_token = newAccessToken
       if (newRefreshToken) req.cookies.refresh_token = newRefreshToken
 
-      req.user = jwt.decode(newAccessToken)
+      req.user = await verifyAPSToken(newAccessToken)
       return next()
     }
 

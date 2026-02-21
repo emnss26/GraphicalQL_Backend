@@ -1,4 +1,5 @@
 const express = require("express")
+const checkSession = require("../../middlewares/checkSession")
 
 const {
   GetThreeLegged,
@@ -13,7 +14,7 @@ const router = express.Router()
 
 // OAuth
 router.get("/three-legged", GetThreeLegged)
-router.get("/token", GetToken)
+router.get("/token", checkSession, GetToken)
 router.post("/logout", PostLogout)
 
 // User

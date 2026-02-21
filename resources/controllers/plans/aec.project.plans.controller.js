@@ -1,4 +1,4 @@
-const knex = require("knex")(require("../../../knexfile").development);
+const knex = require("../../../utils/db/knex")
 const axios = require("axios");
 
 const { ensureTables } = require("../../../utils/db/ensureTables");
@@ -101,8 +101,15 @@ const toBProject = (pid) => {
 
 const toGuid = (pid) => {
   const s = String(pid || "");
-  if (s.startsWith("urn:adsk.workspace:prod.project:")) return s.split(":").pop();
-  return s.replace(/^b\./i, "");
+  // Extract GUID/UUID from various formats
+  if (s.startsWith("urn:adsk.workspace:prod.project:")) {
+    return s.split(":").pop().toLowerCase();
+  }
+  // Remove b. prefix if present
+  const withoutPrefix = s.replace(/^b\./i, "");
+  // Extract UUID pattern and normalize
+  const m = withoutPrefix.match(/[0-9a-fA-F-]{36}/);
+  return m ? m[0].toLowerCase() : withoutPrefix.toLowerCase();
 };
 
 const listPlans = async (req, res, next) => {
@@ -177,8 +184,8 @@ const updatePlan = async (req, res, next) => {
     }
     if (Object.keys(patch).length === 0) return res.status(400).json({error: "Nada que actualizar"});
     patch.updated_at = knex.fn.now();
-    await knex("user_plans").where({ id }).update(patch);
-    const updated = await knex("user_plans").where({ id }).first();
+    await knex("user_plans").where({ id, project_id: projectId }).update(patch);
+    const updated = await knex("user_plans").where({ id, project_id: projectId }).first();
     return res.json({ success: true, message: "Plan actualizado", data: { plan: updated }, error: null });
   } catch (err) { return next(err); }
 };
@@ -208,6 +215,12 @@ const deletePlan = async (req, res, next) => {
     await ensureTables(knex);
     const bProjectId = toBProject(altProjectId);
     const accProjectGuid = toGuid(altProjectId);
+
+    const sel = await knex("model_selection")
+      .where({ project_id: projectId })
+      .select("model_id", "model_name");
+
+    const modelNameById = new Map(sel.map(r => [r.model_id, r.model_name || r.model_id]));
 
     async function fetchWithRetryLocal(url, retries = 3, delay = 500) {
         try {
@@ -239,16 +252,36 @@ const deletePlan = async (req, res, next) => {
 
     const byNumber = new Map();
     const byName = new Map();
+    const modelSheetsAll = [];
 
     for (const mid of modelIds) {
-        try {
-            const ss = await fetchSheets(token, mid, "property.name.category==Sheets");
-            for (const s of ss) {
-                const f = extractSheetFields(s);
-                if (f.number) byNumber.set(keyifyNumber(f.number), f);
-                if (f.name) byName.set(keyifyName(f.name), f);
-            }
-        } catch {}
+      try {
+        const ss = await fetchSheets(token, mid, "property.name.category==Sheets");
+        for (const s of ss) {
+          const f = extractSheetFields(s);
+    
+          // tu lógica existente (no tocar)
+          if (f.number) byNumber.set(keyifyNumber(f.number), f);
+          if (f.name) byName.set(keyifyName(f.name), f);
+    
+          // NUEVO: guardamos todos para alertas
+          const sheetKey = f.number
+            ? keyifyNumber(f.number)
+            : keyifyName(f.name);
+    
+          if (sheetKey) {
+            modelSheetsAll.push({
+              modelId: mid,
+              modelName: modelNameById.get(mid) || mid,
+              sheetKey,
+              number: f.number || "",
+              name: f.name || "",
+              currentRevision: f.currentRevision || "",
+              currentRevisionDate: f.currentRevisionDate || null,
+            });
+          }
+        }
+      } catch {}
     }
 
     const docsV1Map = new Map();
@@ -338,6 +371,7 @@ const deletePlan = async (req, res, next) => {
     const SLEEP_MS = 300; 
     const patches = [];
     const details = [];
+    
 
     const processPlan = async (p) => {
         const kNum = keyifyNumber(p.number);
@@ -397,16 +431,78 @@ const deletePlan = async (req, res, next) => {
     if (patches.length > 0) {
         await knex.transaction(async (trx) => {
             for (const { id, patch } of patches) {
-                await trx("user_plans").where({ id }).update(patch);
+              await trx("user_plans").where({ id, project_id: projectId }).update(patch);
             }
         });
     }
+
+    const planKeySet = new Set();
+      for (const p of plans) {
+        const kNum = keyifyNumber(p.number);
+        const kName = keyifyName(p.name);
+        if (kNum) planKeySet.add(kNum);
+        else if (kName) planKeySet.add(kName);
+      }
+
+    const missingMap = new Map();
+      for (const s of modelSheetsAll) {
+        if (!s.sheetKey) continue;
+        if (planKeySet.has(s.sheetKey)) continue;
+
+        const existing = missingMap.get(s.sheetKey);
+          if (existing) {
+            existing.modelNames.add(s.modelName || s.modelId);
+          } else {
+            missingMap.set(s.sheetKey, {
+              source: "MODEL",
+              sheet_key: s.sheetKey,
+              sheet_number: s.number || null,
+              sheet_name: s.name || null,
+              current_revision: s.currentRevision || null,
+              current_revision_date: s.currentRevisionDate ? normDate(s.currentRevisionDate) : null,
+              modelNames: new Set([s.modelName || s.modelId]), // ✅ antes modelIds
+            });
+          }
+      }
+
+    const missingSheets = [...missingMap.values()].map((m) => ({
+      ...m,
+      model_ids: [...m.modelNames].join(" | "),
+    }));
+
+    await knex.transaction(async (trx) => {
+      // borra alertas anteriores del proyecto (solo source MODEL)
+      await trx("plan_alerts")
+        .where({ project_id: projectId, source: "MODEL" })
+        .del();
+    
+      // inserta las nuevas
+      for (const a of missingSheets) {
+        await trx("plan_alerts").insert({
+          project_id: projectId,
+          source: "MODEL",
+          sheet_key: a.sheet_key,
+          sheet_number: a.sheet_number,
+          sheet_name: a.sheet_name,
+          current_revision: a.current_revision,
+          current_revision_date: a.current_revision_date,
+          model_ids: a.model_ids,
+          detected_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+        });
+      }
+    });
 
     console.timeEnd("MatchProcess");
     return res.status(200).json({
         success: true,
         message: `Sincronización completada. ${patches.length} planos actualizados.`,
-        data: { matchedPlans: patches.length, sheetsFound: accSheets.length },
+        data: { 
+          matchedPlans: patches.length, 
+          sheetsFound: accSheets.length,
+          alertsFound: missingSheets.length,
+          alertsPreview: missingSheets.slice(0, 100),
+         },
     });
 
   } catch (err) {
@@ -416,4 +512,23 @@ const deletePlan = async (req, res, next) => {
   }
 };
 
-module.exports = { listPlans, importPlans, updatePlan, deletePlan, matchPlans };
+const listAlerts = async (req, res, next) => {
+  try {
+    await ensureTables(knex);
+    const rows = await knex("plan_alerts")
+      .where({ project_id: req.params.projectId, source: "MODEL" })
+      .orderByRaw("COALESCE(sheet_number, sheet_name) ASC");
+
+    return res.json({
+      success: true,
+      message: "Alertas listadas",
+      data: { alerts: rows },
+      error: null,
+    });
+  } catch (err) {
+    err.code = err.code || "PlanAlertsListError";
+    return next(err);
+  }
+};
+
+module.exports = { listPlans, importPlans, updatePlan, deletePlan, matchPlans, listAlerts};

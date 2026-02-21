@@ -4,6 +4,7 @@ const { GetProjectReviews } = require("../../../utils/data_management_utils/data
 const HUB_ID = process.env.APS_HUB_ID
 
 const GetFileRevisionStatus = async (req, res, next) => {
+  const { projectId } = req.params
   const token = req.cookies?.access_token
   const altProjectId = req.headers["x-alt-project-id"]
 
