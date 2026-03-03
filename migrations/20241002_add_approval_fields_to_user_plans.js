@@ -1,31 +1,63 @@
 exports.up = async function (knex) {
-  const hasCol = async (name) => {
-    const info = await knex.raw("PRAGMA table_info('user_plans')");
-    const rows = Array.isArray(info) ? (info[0] || info) : info;
-    const cols = rows.map((r) => r.name);
-    return cols.includes(name);
-  };
+  const hasUserPlans = await knex.schema.hasTable("user_plans");
+  if (hasUserPlans) {
+    const hasSpecialty = await knex.schema.hasColumn("user_plans", "specialty");
+    if (!hasSpecialty) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.string("specialty").defaultTo("");
+      });
+    }
+  }
 
-  await knex.schema.alterTable("user_plans", async (table) => {
-    if (!(await hasCol("has_approval_flow"))) {
-      table.integer("has_approval_flow").notNullable().defaultTo(0);
-    }
-    if (!(await hasCol("actual_review_date"))) {
-      // ISO YYYY-MM-DD cabe en 10 chars; usa TEXT por simplicidad en SQLite
-      table.string("actual_review_date", 10).nullable();
-    }
-    // Si no existiera "status" y lo quieres persistir, descomenta:
-    // if (!(await hasCol("status"))) {
-    //   table.string("status").nullable();
-    // }
-  });
+  const hasTracking = await knex.schema.hasTable("plan_tracking_restrictions");
+  if (!hasTracking) {
+    await knex.schema.createTable("plan_tracking_restrictions", (t) => {
+      t.increments("id").primary();
+      t.string("project_id").notNullable().index();
+      t.date("week_key").notNullable();
+      t.integer("tracking_week").nullable();
+      t.date("week_end").nullable();
+      t.text("restriction").defaultTo("");
+      t.timestamp("created_at").defaultTo(knex.fn.now());
+      t.timestamp("updated_at").defaultTo(knex.fn.now());
+
+      t.unique(["project_id", "week_key"]);
+    });
+  }
+
+  const hasControl = await knex.schema.hasTable("plan_control_comments");
+  if (!hasControl) {
+    await knex.schema.createTable("plan_control_comments", (t) => {
+      t.increments("id").primary();
+      t.string("project_id").notNullable().index();
+      t.integer("plan_id").nullable().index();
+      t.string("plan_number").nullable();
+      t.string("plan_name").notNullable().defaultTo("");
+      t.text("comment").defaultTo("");
+      t.timestamp("created_at").defaultTo(knex.fn.now());
+      t.timestamp("updated_at").defaultTo(knex.fn.now());
+    });
+  }
 };
 
 exports.down = async function (knex) {
-  // En SQLite, dropColumn puede recrear la tabla internamente.
-  await knex.schema.alterTable("user_plans", (table) => {
-    table.dropColumn("has_approval_flow");
-    table.dropColumn("actual_review_date");
-    // table.dropColumn("status");
-  });
+  const hasControl = await knex.schema.hasTable("plan_control_comments");
+  if (hasControl) {
+    await knex.schema.dropTable("plan_control_comments");
+  }
+
+  const hasTracking = await knex.schema.hasTable("plan_tracking_restrictions");
+  if (hasTracking) {
+    await knex.schema.dropTable("plan_tracking_restrictions");
+  }
+
+  const hasUserPlans = await knex.schema.hasTable("user_plans");
+  if (hasUserPlans) {
+    const hasSpecialty = await knex.schema.hasColumn("user_plans", "specialty");
+    if (hasSpecialty) {
+      await knex.schema.alterTable("user_plans", (t) => {
+        t.dropColumn("specialty");
+      });
+    }
+  }
 };

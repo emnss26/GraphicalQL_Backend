@@ -1,0 +1,37 @@
+exports.up = async function (knex) {
+  const hasTable = await knex.schema.hasTable("user_plans");
+  if (!hasTable) return;
+
+  const hasApprovalFlow = await knex.schema.hasColumn("user_plans", "has_approval_flow");
+  if (!hasApprovalFlow) {
+    await knex.schema.alterTable("user_plans", (table) => {
+      table.integer("has_approval_flow").notNullable().defaultTo(0);
+    });
+  }
+
+  const hasActualReviewDate = await knex.schema.hasColumn("user_plans", "actual_review_date");
+  if (!hasActualReviewDate) {
+    await knex.schema.alterTable("user_plans", (table) => {
+      table.string("actual_review_date", 10).nullable();
+    });
+  }
+};
+
+exports.down = async function (knex) {
+  const hasTable = await knex.schema.hasTable("user_plans");
+  if (!hasTable) return;
+
+  const hasApprovalFlow = await knex.schema.hasColumn("user_plans", "has_approval_flow");
+  if (hasApprovalFlow) {
+    await knex.schema.alterTable("user_plans", (table) => {
+      table.dropColumn("has_approval_flow");
+    });
+  }
+
+  const hasActualReviewDate = await knex.schema.hasColumn("user_plans", "actual_review_date");
+  if (hasActualReviewDate) {
+    await knex.schema.alterTable("user_plans", (table) => {
+      table.dropColumn("actual_review_date");
+    });
+  }
+};

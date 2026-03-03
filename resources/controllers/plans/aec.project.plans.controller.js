@@ -134,10 +134,11 @@ const importPlans = async (req, res, next) => {
     const normalized = plans.map((p) => {
       let name = String(p.name || "").trim();
       let number = String(p.number || "").trim();
+      const specialty = String(p.specialty || "").trim();
       const nameIsToken = looksLikeNumberToken(name) && !/\s/.test(name);
       const numberLooksLikeName = /\s/.test(number) || /[a-záéíóúñ]/i.test(number);
       if (nameIsToken && numberLooksLikeName) { const tmp = name; name = number; number = tmp; }
-      return { name, number, plannedGenDate: p.plannedGenDate, plannedReviewDate: p.plannedReviewDate, plannedIssueDate: p.plannedIssueDate };
+      return { name, number, specialty, plannedGenDate: p.plannedGenDate, plannedReviewDate: p.plannedReviewDate, plannedIssueDate: p.plannedIssueDate };
     });
 
     await knex.transaction(async (trx) => {
@@ -145,6 +146,7 @@ const importPlans = async (req, res, next) => {
         const row = {
           project_id: projectId, name: String(p.name || "").trim(),
           number: p.number != null && String(p.number).trim() !== "" ? String(p.number).trim() : null,
+          specialty: String(p.specialty || "").trim(),
           planned_gen_date: normDate(p.plannedGenDate), planned_review_date: normDate(p.plannedReviewDate), planned_issue_date: normDate(p.plannedIssueDate),
         };
         if (row.number) {
@@ -167,7 +169,7 @@ const updatePlan = async (req, res, next) => {
     const { projectId, id } = { projectId: req.params.projectId, id: Number(req.params.id) };
     const patch = {}; 
     const validators = {
-        name: (v) => String(v || "").trim(), number: (v) => String(v || "").trim() || null,
+        name: (v) => String(v || "").trim(), number: (v) => String(v || "").trim() || null, specialty: (v) => String(v || "").trim(),
         plannedGenDate: normDate, actualGenDate: normDate, plannedReviewDate: normDate, actualReviewDate: normDate, plannedIssueDate: normDate,
         actualIssueDate: normDate, currentRevision: (v) => String(v || "").trim(), currentRevisionDate: normDate, status: (v) => String(v || "").trim(),
         docsVersion: (v) => (v === "" || v === null ? null : Number(v)), docsVersionDate: normDate, lastReviewDate: normDate, lastReviewStatus: (v) => String(v || "").trim(),

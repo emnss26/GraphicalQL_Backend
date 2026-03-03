@@ -11,6 +11,14 @@ const {
   listAlerts
 } = require("../controllers/plans/aec.project.plans.controller")
 const {
+  listTrackingRestrictions,
+  upsertTrackingRestriction,
+  bulkUpsertTrackingRestrictions,
+  listControlComments,
+  upsertControlComment,
+  bulkUpsertControlComments,
+} = require("../controllers/plans/plan.view.modes.controller")
+const {
   ResetProjectData,
   ResetAllData,
 } = require("../controllers/plans/aec.db.reset.controller")
@@ -26,6 +34,16 @@ router.put("/:projectId/plans/:id", updatePlan)
 router.delete("/:projectId/plans/:id", deletePlan)
 router.post("/:projectId/plans/match", matchPlans)
 router.get("/:projectId/alerts", listAlerts);
+
+// Tracking (view mode)
+router.get("/:projectId/tracking/restrictions", listTrackingRestrictions)
+router.put("/:projectId/tracking/restrictions/:weekKey", upsertTrackingRestriction)
+router.post("/:projectId/tracking/restrictions/bulk", bulkUpsertTrackingRestrictions)
+
+// Control (view mode)
+router.get("/:projectId/control/comments", listControlComments)
+router.put("/:projectId/control/comments", upsertControlComment)
+router.post("/:projectId/control/comments/bulk", bulkUpsertControlComments)
 
 // Reset (protected - admin only)
 router.delete("/:projectId/reset", checkProjectAdmin, ResetProjectData)

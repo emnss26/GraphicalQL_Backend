@@ -1,29 +1,20 @@
-
-const path = require("path");
 const knexLib = require("knex");
 const knexfile = require("../../knexfile");
 
 const env = process.env.NODE_ENV || "development";
 const cfg = knexfile[env];
 
-// ✅ filename absoluto (evita “estoy en otra DB sin querer”)
-const filename = cfg?.connection?.filename
-  ? path.resolve(process.cwd(), cfg.connection.filename)
-  : undefined;
 
-const knex = knexLib({
-  ...cfg,
-  connection: filename ? { ...cfg.connection, filename } : cfg.connection,
-  pool: {
-    ...cfg.pool,
-    afterCreate: (conn, done) => {
-      // ✅ reduce “SQLITE_BUSY: database is locked”
-      conn.run("PRAGMA journal_mode = WAL;", (err) => {
-        if (err) return done(err);
-        conn.run("PRAGMA busy_timeout = 5000;", done);
-      });
-    },
-  },
-});
+const knex = knexLib(cfg);
+
+
+knex.raw('SELECT 1+1 as result')
+  .then(() => {
+    console.log(`✅ Conexión exitosa a MySQL (${env})`);
+  })
+  .catch((err) => {
+    console.error("❌ Error fatal conectando a la base de datos:", err);
+
+  });
 
 module.exports = knex;

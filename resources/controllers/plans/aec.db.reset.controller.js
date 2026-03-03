@@ -1,4 +1,28 @@
-const knex = require("knex")(require("../../../knexfile").development)
+const knex = require("../../../utils/db/knex")
+const { ensureTables } = require("../../../utils/db/ensureTables")
+
+const PROJECT_SCOPED_TABLES = [
+  "model_selection",
+  "plan_folder_selection",
+  "plan_alerts",
+  "plan_tracking_restrictions",
+  "plan_control_comments",
+  "user_plans",
+]
+
+const ALL_RESET_TABLES = [...PROJECT_SCOPED_TABLES]
+
+async function deleteProjectRowsIfTableExists(tableName, projectId) {
+  const exists = await knex.schema.hasTable(tableName)
+  if (!exists) return
+  await knex(tableName).where({ project_id: projectId }).del()
+}
+
+async function deleteAllRowsIfTableExists(tableName) {
+  const exists = await knex.schema.hasTable(tableName)
+  if (!exists) return
+  await knex(tableName).del()
+}
 
 /**
  * DELETE /aec/:projectId/reset
@@ -15,9 +39,10 @@ const ResetProjectData = async (req, res, next) => {
   }
 
   try {
-    await knex("model_selection").where({ project_id: projectId }).del()
-    await knex("plan_folder_selection").where({ project_id: projectId }).del()
-    await knex("user_plans").where({ project_id: projectId }).del()
+    await ensureTables(knex)
+    for (const table of PROJECT_SCOPED_TABLES) {
+      await deleteProjectRowsIfTableExists(table, projectId)
+    }
 
     return res.json({
       success: true,
@@ -37,9 +62,10 @@ const ResetProjectData = async (req, res, next) => {
  */
 const ResetAllData = async (_req, res, next) => {
   try {
-    await knex("model_selection").del()
-    await knex("plan_folder_selection").del()
-    await knex("user_plans").del()
+    await ensureTables(knex)
+    for (const table of ALL_RESET_TABLES) {
+      await deleteAllRowsIfTableExists(table)
+    }
 
     return res.json({
       success: true,

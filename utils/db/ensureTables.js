@@ -1,3 +1,5 @@
+// utils/db/ensureTables.js
+
 let ensured = false;
 let ensuringPromise = null;
 
@@ -10,6 +12,8 @@ async function ensureTables(knex) {
     await ensureModelSelectionTable(knex);
     await ensurePlanFolderSelectionTable(knex);
     await ensurePlanAlertsTable(knex);
+    await ensurePlanTrackingRestrictionsTable(knex);
+    await ensurePlanControlCommentsTable(knex);
 
     ensured = true;
   })().finally(() => {
@@ -29,6 +33,7 @@ async function ensureUserPlansTable(knex) {
       t.string("project_id").notNullable().index();
       t.string("name").defaultTo("");
       t.string("number").nullable().index();
+      t.string("specialty").defaultTo("");
 
       t.date("planned_gen_date");
       t.date("actual_gen_date");
@@ -71,6 +76,7 @@ async function ensureUserPlansColumns(knex) {
     await knex.schema.alterTable("user_plans", addFn);
   };
 
+  await addColumn("specialty", (t) => t.string("specialty").defaultTo(""));
   await addColumn("has_approval_flow", (t) => t.integer("has_approval_flow").notNullable().defaultTo(0));
   await addColumn("docs_last_modified", (t) => t.date("docs_last_modified"));
   await addColumn("docs_version_number", (t) => t.integer("docs_version_number"));
@@ -160,6 +166,89 @@ async function ensurePlanAlertsTable(knex) {
 
     t.unique(["project_id", "source", "sheet_key"]);
   });
+}
+
+// -------------------- TRACKING RESTRICTIONS --------------------
+
+async function ensurePlanTrackingRestrictionsTable(knex) {
+  const exists = await knex.schema.hasTable("plan_tracking_restrictions");
+  if (!exists) {
+    await knex.schema.createTable("plan_tracking_restrictions", (t) => {
+      t.increments("id").primary();
+      t.string("project_id").notNullable().index();
+      t.date("week_key").notNullable();
+      t.integer("tracking_week").nullable();
+      t.date("week_end").nullable();
+      t.text("restriction").defaultTo("");
+      t.timestamp("created_at").defaultTo(knex.fn.now());
+      t.timestamp("updated_at").defaultTo(knex.fn.now());
+
+      t.unique(["project_id", "week_key"]);
+    });
+    return;
+  }
+
+  await ensurePlanTrackingRestrictionsColumns(knex);
+}
+
+async function ensurePlanTrackingRestrictionsColumns(knex) {
+  const exists = await knex.schema.hasTable("plan_tracking_restrictions");
+  if (!exists) return;
+
+  const columnInfo = await knex("plan_tracking_restrictions").columnInfo();
+  const has = (name) => Object.prototype.hasOwnProperty.call(columnInfo, name);
+
+  const addColumn = async (name, addFn) => {
+    if (has(name)) return;
+    await knex.schema.alterTable("plan_tracking_restrictions", addFn);
+  };
+
+  await addColumn("tracking_week", (t) => t.integer("tracking_week").nullable());
+  await addColumn("week_end", (t) => t.date("week_end").nullable());
+  await addColumn("restriction", (t) => t.text("restriction").defaultTo(""));
+  await addColumn("created_at", (t) => t.timestamp("created_at").nullable());
+  await addColumn("updated_at", (t) => t.timestamp("updated_at").nullable());
+}
+
+// -------------------- CONTROL COMMENTS --------------------
+
+async function ensurePlanControlCommentsTable(knex) {
+  const exists = await knex.schema.hasTable("plan_control_comments");
+  if (!exists) {
+    await knex.schema.createTable("plan_control_comments", (t) => {
+      t.increments("id").primary();
+      t.string("project_id").notNullable().index();
+      t.integer("plan_id").nullable().index();
+      t.string("plan_number").nullable();
+      t.string("plan_name").notNullable().defaultTo("");
+      t.text("comment").defaultTo("");
+      t.timestamp("created_at").defaultTo(knex.fn.now());
+      t.timestamp("updated_at").defaultTo(knex.fn.now());
+    });
+    return;
+  }
+
+  await ensurePlanControlCommentsColumns(knex);
+}
+
+async function ensurePlanControlCommentsColumns(knex) {
+  const exists = await knex.schema.hasTable("plan_control_comments");
+  if (!exists) return;
+
+  const columnInfo = await knex("plan_control_comments").columnInfo();
+  const has = (name) => Object.prototype.hasOwnProperty.call(columnInfo, name);
+
+  const addColumn = async (name, addFn) => {
+    if (has(name)) return;
+    await knex.schema.alterTable("plan_control_comments", addFn);
+  };
+
+  await addColumn("plan_id", (t) => t.integer("plan_id").nullable().index());
+  await addColumn("plan_number", (t) => t.string("plan_number").nullable());
+  await addColumn("plan_name", (t) => t.string("plan_name").notNullable().defaultTo(""));
+  await addColumn("comment", (t) => t.text("comment").defaultTo(""));
+  await addColumn("created_at", (t) => t.timestamp("created_at").nullable());
+  await addColumn("updated_at", (t) => t.timestamp("updated_at").nullable());
 }
 
 module.exports = { ensureTables };
