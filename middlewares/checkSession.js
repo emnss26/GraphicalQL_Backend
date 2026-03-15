@@ -1,11 +1,21 @@
-const jwt = require("jsonwebtoken")
 const axios = require("axios")
 const config = require("../config")
 const { verifyAPSToken } = require("../utils/auth_utils/jwt.utils")
+const APS_AUTH_BASE = String(
+  process.env.AUTODESK_BASE_URL || "https://developer.api.autodesk.com"
+).replace(/\/+$/, "")
+const APS_TOKEN_URL = `${APS_AUTH_BASE}/authentication/v2/token`
 
 async function checkSession(req, res, next) {
   const accessToken = req.cookies?.access_token
   const refreshToken = req.cookies?.refresh_token
+  const isProduction = process.env.NODE_ENV === "production"
+  const cookieOptions = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "None" : "Lax",
+    path: "/",
+  }
 
   if (!accessToken && !refreshToken) {
     return res.status(401).json({ message: "No active session. Please log in." })
@@ -43,20 +53,12 @@ async function checkSession(req, res, next) {
       params.append("refresh_token", refreshToken)
 
       const response = await axios.post(
-        `${config.aps.baseUrl}/authentication/v2/token`,
+        APS_TOKEN_URL,
         params,
         { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
       )
 
       const { access_token: newAccessToken, refresh_token: newRefreshToken } = response.data
-
-      const isProduction = process.env.NODE_ENV === "production"
-      const cookieOptions = {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? "None" : "Lax",
-        path: "/",
-      }
 
       res.cookie("access_token", newAccessToken, { ...cookieOptions, maxAge: 3600000 })
 
@@ -76,8 +78,8 @@ async function checkSession(req, res, next) {
   } catch (err) {
     console.error("Session Refresh Failed:", err.response?.data || err.message)
 
-    res.clearCookie("access_token")
-    res.clearCookie("refresh_token")
+    res.clearCookie("access_token", cookieOptions)
+    res.clearCookie("refresh_token", cookieOptions)
 
     return res.status(401).json({ message: "Invalid session. Please log in." })
   }

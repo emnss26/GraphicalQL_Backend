@@ -1,5 +1,4 @@
-const axios = require("axios");
-const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql";
+const { postAecGraphql } = require("./aec.graphql.client");
 
 async function fetchProjects(token, hubId) {
   if (!token) throw new Error("Missing APS access token");
@@ -34,11 +33,7 @@ async function fetchProjects(token, hubId) {
     const query = cursor ? queryNext : queryFirst;
     const variables = cursor ? { hubId, cursor } : { hubId };
 
-    const { data } = await axios.post(
-      AEC_GRAPHQL_URL,
-      { query, variables },
-      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
-    );
+    const data = await postAecGraphql(token, query, variables);
 
     const gqlErrors = data?.errors;
     if (Array.isArray(gqlErrors) && gqlErrors.length) {
@@ -49,6 +44,7 @@ async function fetchProjects(token, hubId) {
     const results = page?.results || [];
     all.push(...results);
 
+    //console.log("Project", { hubId, all });
     const nextCursor = page?.pagination?.cursor;
     if (!nextCursor) break;
     if (seenCursors.has(nextCursor)) break; 

@@ -10,20 +10,42 @@ const config = require("./config");
 const app = express();
 
 const isProduction = config.env === "production";
+const BASE_PATH = "/ControlPlanos";
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "50mb";
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+const toOrigin = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return "";
+  }
+};
+
+const frontendOrigin = toOrigin(config.frontendUrl);
+
+const getRequestOrigin = (req) => {
+  const originHeader = toOrigin(req.headers.origin);
+  if (originHeader) return originHeader;
+  return toOrigin(req.headers.referer);
+};
 
 app.set("trust proxy", 1);
 
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
-    contentSecurityPolicy: false, 
+    contentSecurityPolicy: false,
   })
 );
 
 app.use(
   rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 300, 
+    windowMs: 15 * 60 * 1000,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -33,30 +55,41 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: false, limit: JSON_BODY_LIMIT }));
 app.use(cookieParser());
 
-// Cors configuration
 app.use(
   cors({
-    origin: config.frontendUrl,
+    origin(origin, callback) {
+      // Allow requests without Origin header (server-to-server, health checks, etc.)
+      if (!origin) return callback(null, true);
+
+      const normalizedOrigin = toOrigin(origin);
+      if (normalizedOrigin && normalizedOrigin === frontendOrigin) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("CORS: Origin not allowed"));
+    },
     credentials: true,
   })
 );
 
-
+// Exact origin validation for state-changing methods in production
 app.use((req, res, next) => {
-  if (["POST", "PUT", "DELETE"].includes(req.method)) {
-    const origin = req.headers.origin || req.headers.referer;
+  if (isProduction && STATE_CHANGING_METHODS.has(req.method)) {
+    const requestOrigin = getRequestOrigin(req);
 
-    if (isProduction && origin && !origin.startsWith(config.frontendUrl)) {
-      return res
-        .status(403)
-        .json({ success: false, message: "CSRF Protection: Origin not allowed" });
+    if (!frontendOrigin || !requestOrigin || requestOrigin !== frontendOrigin) {
+      return res.status(403).json({
+        success: false,
+        message: "CSRF Protection: Origin not allowed",
+      });
     }
   }
-  next();
+
+  return next();
 });
 
 if (!isProduction) {
@@ -65,19 +98,22 @@ if (!isProduction) {
 
 app.disable("etag");
 
+// Routers
 const authRouter = require("./resources/routers/auth.router");
 const aecRouter = require("./resources/routers/aec.router");
 const accRouter = require("./resources/routers/acc.router");
 const plansRouter = require("./resources/routers/plans.router");
-const datamanagementRouter = require("./resources/routers/dm.router")
+const datamanagementRouter = require("./resources/routers/dm.router");
 
-app.use(["/auth", "/ControlPlanos/auth"], authRouter);
-app.use(["/aec", "/ControlPlanos/aec"], aecRouter);
-app.use(["/acc", "/ControlPlanos/acc"], accRouter);
-app.use(["/plans", "/ControlPlanos/plans"], plansRouter);
-app.use(["/dm", "/ControlPlanos/dm"], datamanagementRouter)
+// Support both local routes and IIS subpath routes
+app.use(["/auth", `${BASE_PATH}/auth`], authRouter);
+app.use(["/aec", `${BASE_PATH}/aec`], aecRouter);
+app.use(["/acc", `${BASE_PATH}/acc`], accRouter);
+app.use(["/plans", `${BASE_PATH}/plans`], plansRouter);
+app.use(["/dm", `${BASE_PATH}/dm`], datamanagementRouter);
 
-app.get("/health", (_req, res) => {
+// Health
+app.get(["/health", `${BASE_PATH}/health`], (_req, res) => {
   res.json({
     success: true,
     message: "Backend API is online 🚀 (Express 4)",
@@ -85,13 +121,47 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.use(express.static(path.join(__dirname, "public")));
+const publicPath = path.join(__dirname, "public");
+const indexPath = path.join(publicPath, "index.html");
 
-app.use("/ControlPlanos", express.static(path.join(__dirname, "public")));
+// Static frontend
+app.use(express.static(publicPath));
+app.use(BASE_PATH, express.static(publicPath));
 
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+// SPA fallback
+app.get("*", (req, res, next) => {
+  if (req.method !== "GET") return next();
+
+  const requestPath = req.path || "";
+
+  const isApiPath =
+    requestPath.startsWith("/auth") ||
+    requestPath.startsWith("/aec") ||
+    requestPath.startsWith("/acc") ||
+    requestPath.startsWith("/plans") ||
+    requestPath.startsWith("/dm") ||
+    requestPath.startsWith("/health") ||
+    requestPath.startsWith(`${BASE_PATH}/auth`) ||
+    requestPath.startsWith(`${BASE_PATH}/aec`) ||
+    requestPath.startsWith(`${BASE_PATH}/acc`) ||
+    requestPath.startsWith(`${BASE_PATH}/plans`) ||
+    requestPath.startsWith(`${BASE_PATH}/dm`) ||
+    requestPath.startsWith(`${BASE_PATH}/health`);
+
+  if (isApiPath) return next();
+
+  if (requestPath === "/" || requestPath.startsWith(BASE_PATH)) {
+    return res.sendFile(indexPath);
+  }
+
+  return next();
 });
+
+if (!isProduction) {
+  app.get("/boom", (_req, _res) => {
+    throw new Error("BOOM test route");
+  });
+}
 
 app.use(require("./middlewares/errorHandler"));
 

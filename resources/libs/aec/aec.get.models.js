@@ -1,6 +1,4 @@
-const axios = require("axios")
-
-const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
+const { postAecGraphql } = require("./aec.graphql.client")
 
 /**
  * Fetch element groups (models) for a given AEC project.
@@ -14,7 +12,7 @@ async function fetchModels(token, projectId) {
   if (!token) throw new Error("Missing APS access token")
   if (!projectId) throw new Error("Missing projectId")
 
-  console.log("ProjectId", projectId)
+  //console.log("ProjectId", projectId)
   const query = `
     query GetElementGroupsByProject($projectId: ID!, $cursor: String) {
       elementGroupsByProject(projectId: $projectId, pagination: { cursor: $cursor }) {
@@ -36,16 +34,7 @@ async function fetchModels(token, projectId) {
 
   try {
     while (true) {
-      const { data } = await axios.post(
-        AEC_GRAPHQL_URL,
-        { query, variables: { projectId, cursor } },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      )
+      const data = await postAecGraphql(token, query, { projectId, cursor })
 
       const gqlErrors = data?.errors
       if (Array.isArray(gqlErrors) && gqlErrors.length) {

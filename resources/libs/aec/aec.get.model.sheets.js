@@ -1,6 +1,4 @@
-const axios = require("axios")
-
-const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
+const { postAecGraphql } = require("./aec.graphql.client")
 
 /**
  * Fetch ALL elements (Sheets) handling pagination.
@@ -46,21 +44,13 @@ async function fetchSheets(token, elementGroupId, propertyFilter) {
   try {
 
     while (hasMore) {
-      const { data } = await axios.post(
-        AEC_GRAPHQL_URL,
-        { 
-            query, 
-            variables: { 
-                elementGroupId, 
-                propertyFilter,
-                cursor: cursor 
-            } 
-        },
+      const data = await postAecGraphql(
+        token,
+        query,
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          elementGroupId,
+          propertyFilter,
+          cursor: cursor,
         }
       );
 

@@ -2,10 +2,8 @@ const { fetchFolderTree } = require("../../../utils/dm/dm.folderTree")
 
 const GetDMProjectFolders = async (req, res, next) => {
   const { projectId } = req.params; 
-  const { dmId } = req.query;      
+  const { dmId } = req.query;       
   const token = req.cookies?.access_token;
-
-  console.log("ProjetId dmg", dmId)
 
   if (!token) {
     const err = new Error("Authorization token is required");
@@ -14,13 +12,10 @@ const GetDMProjectFolders = async (req, res, next) => {
   }
 
   try {
+
     const targetId = dmId ;
 
-    console.log(`📂 Fetching Folder Tree via REST for: ${targetId}`);
-
     const folderTree = await fetchFolderTree(token, targetId);
-
-    console.log("Folder Tree", folderTree)
 
     return res.status(200).json({
       success: true,

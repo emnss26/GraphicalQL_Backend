@@ -1,6 +1,4 @@
-const axios = require("axios")
-
-const AEC_GRAPHQL_URL = "https://developer.api.autodesk.com/aec/graphql"
+const { postAecGraphql } = require("./aec.graphql.client")
 
 /**
  * Fetch all AEC hubs via GraphQL pagination (cursor-based).
@@ -25,16 +23,7 @@ async function fetchHubs(token) {
 
   try {
     while (true) {
-      const { data } = await axios.post(
-        AEC_GRAPHQL_URL,
-        { query, variables: { cursor } },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      )
+      const data = await postAecGraphql(token, query, { cursor })
 
       const gqlErrors = data?.errors
       if (Array.isArray(gqlErrors) && gqlErrors.length) {

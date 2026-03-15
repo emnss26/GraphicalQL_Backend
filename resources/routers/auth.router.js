@@ -2,6 +2,7 @@ const express = require("express")
 const checkSession = require("../../middlewares/checkSession")
 
 const {
+  GetOAuthState,
   GetThreeLegged,
   GetToken,
   PostLogout,
@@ -13,11 +14,12 @@ const {
 const router = express.Router()
 
 // OAuth
+router.get("/oauth-state", GetOAuthState)
 router.get("/three-legged", GetThreeLegged)
 router.get("/token", checkSession, GetToken)
 router.post("/logout", PostLogout)
 
 // User
-router.get("/userprofile", GetUserProfile)
+router.get("/userprofile", checkSession, GetUserProfile)
 
 module.exports = router
