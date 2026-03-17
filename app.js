@@ -28,6 +28,7 @@ const toOrigin = (value) => {
 const allowedFrontendOrigins = new Set(
   (config.frontendOrigins || []).map((origin) => toOrigin(origin)).filter(Boolean)
 );
+
 const apsOrigin =
   toOrigin(process.env.AUTODESK_BASE_URL || config.aps.baseUrl) ||
   "https://developer.api.autodesk.com";
@@ -40,6 +41,26 @@ const getRequestOrigin = (req) => {
 
 const isAllowedFrontendOrigin = (origin) =>
   Boolean(origin) && allowedFrontendOrigins.has(origin);
+
+// Fix for IIS/iisnode where req.ip may be undefined for some requests
+const getClientIp = (req) => {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  if (typeof forwardedFor === "string" && forwardedFor.trim()) {
+    return forwardedFor.split(",")[0].trim();
+  }
+
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim()) {
+    return realIp.trim();
+  }
+
+  return (
+    req.ip ||
+    req.socket?.remoteAddress ||
+    req.connection?.remoteAddress ||
+    "unknown-ip"
+  );
+};
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
@@ -75,6 +96,10 @@ app.use(
     max: 300,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: {
+      ip: false,
+    },
+    keyGenerator: (req) => getClientIp(req),
     message: {
       success: false,
       message: "Too many requests, please try again later.",
