@@ -1,4 +1,5 @@
-const knex = require("knex")(require("../../../knexfile").development)
+const knex = require("../../../utils/db/knex")
+const { ensureTables } = require("../../../utils/db/ensureTables")
 
 const SetSelectedFolder = async (req, res, next) => {
   const { projectId } = req.params
@@ -12,6 +13,7 @@ const SetSelectedFolder = async (req, res, next) => {
   }
 
   try {
+    await ensureTables(knex)
     await knex("plan_folder_selection").where({ project_id: projectId }).del()
 
     await knex("plan_folder_selection").insert({
@@ -35,6 +37,7 @@ const GetSelectedFolder = async (req, res, next) => {
   const { projectId } = req.params
 
   try {
+    await ensureTables(knex)
     const row = await knex("plan_folder_selection")
       .where({ project_id: projectId })
       .first()

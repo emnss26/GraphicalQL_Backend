@@ -20,7 +20,6 @@ const {
 } = require("../controllers/plans/plan.view.modes.controller")
 const {
   ResetProjectData,
-  ResetAllData,
 } = require("../controllers/plans/aec.db.reset.controller")
 
 const router = express.Router()
@@ -47,6 +46,13 @@ router.post("/:projectId/control/comments/bulk", bulkUpsertControlComments)
 
 // Reset (protected - admin only)
 router.delete("/:projectId/reset", checkProjectAdmin, ResetProjectData)
-router.delete("/_all/reset", checkProjectAdmin, ResetAllData)
+router.delete("/_all/reset", (_req, res) =>
+  res.status(410).json({
+    success: false,
+    message: "Global reset endpoint is disabled",
+    data: null,
+    error: { code: "ENDPOINT_DISABLED" },
+  })
+)
 
 module.exports = router

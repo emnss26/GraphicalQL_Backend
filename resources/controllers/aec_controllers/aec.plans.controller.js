@@ -1,5 +1,6 @@
-const knex = require("knex")(require("../../../knexfile").development)
+const knex = require("../../../utils/db/knex")
 const axios = require("axios")
+const { ensureTables } = require("../../../utils/db/ensureTables")
 
 const { fetchSheets } = require("../../libs/aec/aec.get.model.sheets.js")
 const { fetchFolderContents } = require("../../libs/data_management/data.management.get.folder.content.js")
@@ -35,6 +36,7 @@ const GetModelSheets = async (req, res, next) => {
   }
 
   try {
+    await ensureTables(knex)
    
     const selectedRows = await knex("model_selection")
       .where({ project_id: projectId })

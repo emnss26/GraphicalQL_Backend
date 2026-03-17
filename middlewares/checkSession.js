@@ -1,6 +1,7 @@
 const axios = require("axios")
 const config = require("../config")
 const { verifyAPSToken } = require("../utils/auth_utils/jwt.utils")
+
 const APS_AUTH_BASE = String(
   process.env.AUTODESK_BASE_URL || "https://developer.api.autodesk.com"
 ).replace(/\/+$/, "")
@@ -9,7 +10,7 @@ const APS_TOKEN_URL = `${APS_AUTH_BASE}/authentication/v2/token`
 async function checkSession(req, res, next) {
   const accessToken = req.cookies?.access_token
   const refreshToken = req.cookies?.refresh_token
-  const isProduction = process.env.NODE_ENV === "production"
+  const isProduction = config.env === "production"
   const cookieOptions = {
     httpOnly: true,
     secure: isProduction,
@@ -22,7 +23,6 @@ async function checkSession(req, res, next) {
   }
 
   try {
-    // If access token exists and is not about to expire, proceed.
     if (accessToken) {
       try {
         const decoded = await verifyAPSToken(accessToken)
@@ -37,14 +37,16 @@ async function checkSession(req, res, next) {
           }
         }
       } catch (tokenError) {
-        // Token inválido o expirado, intentar refresh
-        console.log("Access token invalid:", tokenError.message)
+        if (!isProduction) {
+          console.warn("Access token invalid, attempting refresh:", tokenError.message)
+        }
       }
     }
 
-    // Access token missing/expired: attempt refresh using refresh token.
     if (refreshToken) {
-      console.log("Session: Token expired or missing. Attempting refresh...")
+      if (!isProduction) {
+        console.log("Session token expired or missing. Attempting refresh...")
+      }
 
       const params = new URLSearchParams()
       params.append("client_id", config.aps.clientId)
@@ -52,11 +54,9 @@ async function checkSession(req, res, next) {
       params.append("grant_type", "refresh_token")
       params.append("refresh_token", refreshToken)
 
-      const response = await axios.post(
-        APS_TOKEN_URL,
-        params,
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-      )
+      const response = await axios.post(APS_TOKEN_URL, params, {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      })
 
       const { access_token: newAccessToken, refresh_token: newRefreshToken } = response.data
 
@@ -66,7 +66,6 @@ async function checkSession(req, res, next) {
         res.cookie("refresh_token", newRefreshToken, cookieOptions)
       }
 
-      // Ensure downstream handlers use the fresh tokens within this same request.
       req.cookies.access_token = newAccessToken
       if (newRefreshToken) req.cookies.refresh_token = newRefreshToken
 
@@ -76,7 +75,11 @@ async function checkSession(req, res, next) {
 
     return res.status(401).json({ message: "Session expired. Please log in again." })
   } catch (err) {
-    console.error("Session Refresh Failed:", err.response?.data || err.message)
+    if (isProduction) {
+      console.error("Session refresh failed")
+    } else {
+      console.error("Session refresh failed:", err.response?.data || err.message)
+    }
 
     res.clearCookie("access_token", cookieOptions)
     res.clearCookie("refresh_token", cookieOptions)

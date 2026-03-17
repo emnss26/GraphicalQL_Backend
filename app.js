@@ -25,7 +25,12 @@ const toOrigin = (value) => {
   }
 };
 
-const frontendOrigin = toOrigin(config.frontendUrl);
+const allowedFrontendOrigins = new Set(
+  (config.frontendOrigins || []).map((origin) => toOrigin(origin)).filter(Boolean)
+);
+const apsOrigin =
+  toOrigin(process.env.AUTODESK_BASE_URL || config.aps.baseUrl) ||
+  "https://developer.api.autodesk.com";
 
 const getRequestOrigin = (req) => {
   const originHeader = toOrigin(req.headers.origin);
@@ -33,12 +38,34 @@ const getRequestOrigin = (req) => {
   return toOrigin(req.headers.referer);
 };
 
+const isAllowedFrontendOrigin = (origin) =>
+  Boolean(origin) && allowedFrontendOrigins.has(origin);
+
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
 
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: isProduction
+      ? {
+          useDefaults: true,
+          directives: {
+            defaultSrc: ["'self'"],
+            baseUri: ["'self'"],
+            connectSrc: ["'self'", apsOrigin],
+            fontSrc: ["'self'", "data:"],
+            formAction: ["'self'"],
+            frameAncestors: ["'self'"],
+            imgSrc: ["'self'", "data:", "blob:", "https:"],
+            objectSrc: ["'none'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            workerSrc: ["'self'", "blob:"],
+            upgradeInsecureRequests: null,
+          },
+        }
+      : false,
   })
 );
 
@@ -66,7 +93,7 @@ app.use(
       if (!origin) return callback(null, true);
 
       const normalizedOrigin = toOrigin(origin);
-      if (normalizedOrigin && normalizedOrigin === frontendOrigin) {
+      if (isAllowedFrontendOrigin(normalizedOrigin)) {
         return callback(null, true);
       }
 
@@ -81,7 +108,7 @@ app.use((req, res, next) => {
   if (isProduction && STATE_CHANGING_METHODS.has(req.method)) {
     const requestOrigin = getRequestOrigin(req);
 
-    if (!frontendOrigin || !requestOrigin || requestOrigin !== frontendOrigin) {
+    if (!isAllowedFrontendOrigin(requestOrigin)) {
       return res.status(403).json({
         success: false,
         message: "CSRF Protection: Origin not allowed",

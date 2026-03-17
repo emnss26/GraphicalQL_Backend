@@ -18,7 +18,7 @@ async function checkProjectAdmin(req, res, next) {
     if (!projectId) {
       return res
         .status(400)
-        .json({ message: "Project ID is required in the request" });
+        .json({ message: "Project ID is required in the request context" });
     }
 
     // Get access token from cookies
@@ -40,8 +40,6 @@ async function checkProjectAdmin(req, res, next) {
       return res.status(403).json({
         message:
           "You do not have project admin access to perform this action",
-        required: "projectAdmin",
-        current: userProfile.accessLevels,
       });
     }
 
@@ -50,7 +48,10 @@ async function checkProjectAdmin(req, res, next) {
 
     next();
   } catch (error) {
-    console.error("checkProjectAdmin error:", error.message);
+    console.error(
+      "checkProjectAdmin error:",
+      error.response?.status || error.message
+    );
 
     // Distinguish between different error types
     if (error.response?.status === 404) {
@@ -63,7 +64,6 @@ async function checkProjectAdmin(req, res, next) {
 
     return res.status(500).json({
       message: "Failed to verify project admin access",
-      error: error.message,
     });
   }
 }
