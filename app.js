@@ -11,38 +11,7 @@ const app = express();
 
 const isProduction = config.env === "production";
 const BASE_PATH = "/ControlPlanos";
-const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "50mb";
-const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-const toOrigin = (value) => {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-
-  try {
-    return new URL(raw).origin;
-  } catch {
-    return "";
-  }
-};
-
-const allowedFrontendOrigins = new Set(
-  (config.frontendOrigins || []).map((origin) => toOrigin(origin)).filter(Boolean)
-);
-
-const apsOrigin =
-  toOrigin(process.env.AUTODESK_BASE_URL || config.aps.baseUrl) ||
-  "https://developer.api.autodesk.com";
-
-const getRequestOrigin = (req) => {
-  const originHeader = toOrigin(req.headers.origin);
-  if (originHeader) return originHeader;
-  return toOrigin(req.headers.referer);
-};
-
-const isAllowedFrontendOrigin = (origin) =>
-  Boolean(origin) && allowedFrontendOrigins.has(origin);
-
-// Fix for IIS/iisnode where req.ip may be undefined for some requests
 const getClientIp = (req) => {
   const forwardedFor = req.headers["x-forwarded-for"];
   if (typeof forwardedFor === "string" && forwardedFor.trim()) {
@@ -63,30 +32,11 @@ const getClientIp = (req) => {
 };
 
 app.set("trust proxy", 1);
-app.disable("x-powered-by");
 
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
-    contentSecurityPolicy: isProduction
-      ? {
-          useDefaults: true,
-          directives: {
-            defaultSrc: ["'self'"],
-            baseUri: ["'self'"],
-            connectSrc: ["'self'", apsOrigin],
-            fontSrc: ["'self'", "data:"],
-            formAction: ["'self'"],
-            frameAncestors: ["'self'"],
-            imgSrc: ["'self'", "data:", "blob:", "https:"],
-            objectSrc: ["'none'"],
-            scriptSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            workerSrc: ["'self'", "blob:"],
-            upgradeInsecureRequests: null,
-          },
-        }
-      : false,
+    contentSecurityPolicy: false,
   })
 );
 
@@ -107,41 +57,28 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: JSON_BODY_LIMIT }));
-app.use(express.urlencoded({ extended: false, limit: JSON_BODY_LIMIT }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 app.use(
   cors({
-    origin(origin, callback) {
-      // Allow requests without Origin header (server-to-server, health checks, etc.)
-      if (!origin) return callback(null, true);
-
-      const normalizedOrigin = toOrigin(origin);
-      if (isAllowedFrontendOrigin(normalizedOrigin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("CORS: Origin not allowed"));
-    },
+    origin: config.frontendUrl,
     credentials: true,
   })
 );
 
-// Exact origin validation for state-changing methods in production
 app.use((req, res, next) => {
-  if (isProduction && STATE_CHANGING_METHODS.has(req.method)) {
-    const requestOrigin = getRequestOrigin(req);
+  if (["POST", "PUT", "DELETE"].includes(req.method)) {
+    const origin = req.headers.origin || req.headers.referer;
 
-    if (!isAllowedFrontendOrigin(requestOrigin)) {
-      return res.status(403).json({
-        success: false,
-        message: "CSRF Protection: Origin not allowed",
-      });
+    if (isProduction && origin && !origin.startsWith(config.frontendUrl)) {
+      return res
+        .status(403)
+        .json({ success: false, message: "CSRF Protection: Origin not allowed" });
     }
   }
-
-  return next();
+  next();
 });
 
 if (!isProduction) {
@@ -150,22 +87,19 @@ if (!isProduction) {
 
 app.disable("etag");
 
-// Routers
 const authRouter = require("./resources/routers/auth.router");
 const aecRouter = require("./resources/routers/aec.router");
 const accRouter = require("./resources/routers/acc.router");
 const plansRouter = require("./resources/routers/plans.router");
 const datamanagementRouter = require("./resources/routers/dm.router");
 
-// Support both local routes and IIS subpath routes
-app.use(["/auth", `${BASE_PATH}/auth`], authRouter);
-app.use(["/aec", `${BASE_PATH}/aec`], aecRouter);
-app.use(["/acc", `${BASE_PATH}/acc`], accRouter);
-app.use(["/plans", `${BASE_PATH}/plans`], plansRouter);
-app.use(["/dm", `${BASE_PATH}/dm`], datamanagementRouter);
+app.use(["/auth", "/ControlPlanos/auth"], authRouter);
+app.use(["/aec", "/ControlPlanos/aec"], aecRouter);
+app.use(["/acc", "/ControlPlanos/acc"], accRouter);
+app.use(["/plans", "/ControlPlanos/plans"], plansRouter);
+app.use(["/dm", "/ControlPlanos/dm"], datamanagementRouter);
 
-// Health
-app.get(["/health", `${BASE_PATH}/health`], (_req, res) => {
+app.get(["/health", "/ControlPlanos/health"], (_req, res) => {
   res.json({
     success: true,
     message: "Backend API is online 🚀 (Express 4)",
@@ -173,40 +107,11 @@ app.get(["/health", `${BASE_PATH}/health`], (_req, res) => {
   });
 });
 
-const publicPath = path.join(__dirname, "public");
-const indexPath = path.join(publicPath, "index.html");
+app.use(express.static(path.join(__dirname, "public")));
+app.use("/ControlPlanos", express.static(path.join(__dirname, "public")));
 
-// Static frontend
-app.use(express.static(publicPath));
-app.use(BASE_PATH, express.static(publicPath));
-
-// SPA fallback
-app.get("*", (req, res, next) => {
-  if (req.method !== "GET") return next();
-
-  const requestPath = req.path || "";
-
-  const isApiPath =
-    requestPath.startsWith("/auth") ||
-    requestPath.startsWith("/aec") ||
-    requestPath.startsWith("/acc") ||
-    requestPath.startsWith("/plans") ||
-    requestPath.startsWith("/dm") ||
-    requestPath.startsWith("/health") ||
-    requestPath.startsWith(`${BASE_PATH}/auth`) ||
-    requestPath.startsWith(`${BASE_PATH}/aec`) ||
-    requestPath.startsWith(`${BASE_PATH}/acc`) ||
-    requestPath.startsWith(`${BASE_PATH}/plans`) ||
-    requestPath.startsWith(`${BASE_PATH}/dm`) ||
-    requestPath.startsWith(`${BASE_PATH}/health`);
-
-  if (isApiPath) return next();
-
-  if (requestPath === "/" || requestPath.startsWith(BASE_PATH)) {
-    return res.sendFile(indexPath);
-  }
-
-  return next();
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 if (!isProduction) {
