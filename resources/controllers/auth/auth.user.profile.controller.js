@@ -3,31 +3,43 @@ const axios = require("axios")
 const APS_BASE =
   process.env.AUTODESK_BASE_URL || "https://developer.api.autodesk.com"
 
+const fetchAuthenticatedUserProfile = async (token) => {
+  if (!token) {
+    const err = new Error("Missing access token")
+    err.status = 401
+    err.code = "Unauthorized"
+    throw err
+  }
+
+  const { data } = await axios.get(`${APS_BASE}/userprofile/v1/users/@me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+
+  return data
+}
+
+const buildUserProfilePayload = (data = {}) => {
+  const name =
+    data.displayName ||
+    data.userName ||
+    `${data.firstName || ""} ${data.lastName || ""}`.trim()
+
+  return {
+    id: data.userId || data.uid || null,
+    email: data.emailId || data.email || null,
+    name: name || null,
+  }
+}
+
 const GetUserProfile = async (req, res, next) => {
   try {
     const token = req.cookies?.access_token
 
-    if (!token) {
-      const err = new Error("Missing access token")
-      err.status = 401
-      err.code = "Unauthorized"
-      return next(err)
-    }
+    const data = await fetchAuthenticatedUserProfile(token)
 
-    const { data } = await axios.get(`${APS_BASE}/userprofile/v1/users/@me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    //console.log("User profile data:", data)
 
-    const name =
-      data.displayName ||
-      data.userName ||
-      `${data.firstName || ""} ${data.lastName || ""}`.trim()
-
-    const payload = {
-      id: data.userId || data.uid || null,
-      email: data.emailId || data.email || null,
-      name: name || null,
-    }
+    const payload = buildUserProfilePayload(data)
 
     // Prevent caching sensitive profile data
     res.set("Cache-Control", "no-store")
@@ -53,4 +65,8 @@ const GetUserProfile = async (req, res, next) => {
   }
 }
 
-module.exports = { GetUserProfile }
+module.exports = {
+  GetUserProfile,
+  fetchAuthenticatedUserProfile,
+  buildUserProfilePayload,
+}
